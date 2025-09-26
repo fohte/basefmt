@@ -1,0 +1,3 @@
+{
+  extends: ['github>fohte/renovate-config:base.json5'],
+}
