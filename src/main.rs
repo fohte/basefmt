@@ -1,20 +1,23 @@
 use clap::Parser;
 use ignore::Walk;
+use std::path::{Path, PathBuf};
 
 #[derive(Parser)]
 struct Args {
     #[clap(default_value = ".", help = "List of files/directories to format")]
-    paths: Vec<String>,
+    paths: Vec<PathBuf>,
 
     #[clap(short, long, help = "Check mode (don't write changes)")]
     check: bool,
 }
 
-fn find_files(paths: &[String]) -> Vec<String> {
-    let mut files = Vec::new();
+fn find_files(paths: &[impl AsRef<Path>]) -> Vec<PathBuf> {
+    let mut files: Vec<PathBuf> = Vec::new();
+
     for path in paths {
-        if std::path::Path::new(path).is_file() {
-            files.push(path.clone());
+        let path = path.as_ref();
+        if path.is_file() {
+            files.push(path.to_path_buf());
             continue;
         }
 
@@ -22,7 +25,7 @@ fn find_files(paths: &[String]) -> Vec<String> {
             match result {
                 Ok(entry) => {
                     if entry.file_type().map_or(false, |ft| ft.is_file()) {
-                        files.push(entry.path().display().to_string());
+                        files.push(entry.path().to_path_buf());
                     }
                 }
                 Err(err) => eprintln!("Error reading entry: {}", err),
