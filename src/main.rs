@@ -16,19 +16,23 @@ fn find_files(paths: &[impl AsRef<Path>]) -> Vec<PathBuf> {
 
     for path in paths {
         let path = path.as_ref();
-        if path.is_file() {
-            files.push(path.to_path_buf());
-            continue;
-        }
 
-        for result in Walk::new(path) {
-            match result {
-                Ok(entry) => {
-                    if entry.file_type().map_or(false, |ft| ft.is_file()) {
-                        files.push(entry.path().to_path_buf());
+        match path.metadata() {
+            Ok(_) => {
+                for result in Walk::new(path) {
+                    match result {
+                        Ok(entry) => {
+                            if entry.file_type().map_or(false, |ft| ft.is_file()) {
+                                files.push(entry.path().to_path_buf());
+                            }
+                        }
+                        Err(err) => eprintln!("Error reading entry: {}", err),
                     }
                 }
-                Err(err) => eprintln!("Error reading entry: {}", err),
+            }
+            Err(err) => {
+                eprintln!("{}: {}", path.display(), err);
+                continue;
             }
         }
     }
