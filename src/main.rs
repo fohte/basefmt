@@ -1,5 +1,5 @@
 use clap::Parser;
-use walkdir::WalkDir;
+use ignore::Walk;
 
 #[derive(Parser)]
 struct Args {
@@ -18,9 +18,12 @@ fn find_files(paths: &[String]) -> Vec<String> {
             continue;
         }
 
-        for entry in WalkDir::new(path).into_iter().filter_map(Result::ok) {
-            if entry.file_type().is_file() {
-                files.push(entry.path().display().to_string());
+        for result in Walk::new(path) {
+            match result {
+                Ok(entry) => {
+                    files.push(entry.path().display().to_string());
+                }
+                Err(err) => eprintln!("Error reading entry: {}", err),
             }
         }
     }
