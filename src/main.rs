@@ -1,4 +1,5 @@
 use clap::Parser;
+use walkdir::WalkDir;
 
 #[derive(Parser)]
 struct Args {
@@ -10,11 +11,25 @@ struct Args {
 }
 
 fn find_files(paths: &[String]) -> Vec<String> {
-    paths.to_vec()
+    let mut files = Vec::new();
+    for path in paths {
+        if std::path::Path::new(path).is_file() {
+            files.push(path.clone());
+            continue;
+        }
+
+        for entry in WalkDir::new(path).into_iter().filter_map(Result::ok) {
+            if entry.file_type().is_file() {
+                files.push(entry.path().display().to_string());
+            }
+        }
+    }
+    files
 }
 
 fn main() {
     let args = Args::parse();
+
     if args.check {
         println!("Check mode engaged. No changes will be made.");
     }
