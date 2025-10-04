@@ -21,7 +21,9 @@ fn find_files(paths: &[String]) -> Vec<String> {
         for result in Walk::new(path) {
             match result {
                 Ok(entry) => {
-                    files.push(entry.path().display().to_string());
+                    if entry.file_type().map_or(false, |ft| ft.is_file()) {
+                        files.push(entry.path().display().to_string());
+                    }
                 }
                 Err(err) => eprintln!("Error reading entry: {}", err),
             }
