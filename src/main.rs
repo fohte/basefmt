@@ -1,6 +1,8 @@
 use clap::Parser;
 use ignore::Walk;
+use std::io;
 use std::path::{Path, PathBuf};
+use std::process::ExitCode;
 
 #[derive(Parser)]
 struct Args {
@@ -11,8 +13,9 @@ struct Args {
     check: bool,
 }
 
-fn find_files(paths: &[impl AsRef<Path>]) -> Vec<PathBuf> {
+fn find_files(paths: &[impl AsRef<Path>]) -> io::Result<Vec<PathBuf>> {
     let mut files: Vec<PathBuf> = Vec::new();
+    let mut has_error = false;
 
     for path in paths {
         let path = path.as_ref();
@@ -26,27 +29,40 @@ fn find_files(paths: &[impl AsRef<Path>]) -> Vec<PathBuf> {
                                 files.push(entry.path().to_path_buf());
                             }
                         }
-                        Err(err) => eprintln!("Error reading entry: {}", err),
+                        Err(err) => {
+                            eprintln!("{}: {}", path.display(), err);
+                            has_error = true;
+                        }
                     }
                 }
             }
             Err(err) => {
                 eprintln!("{}: {}", path.display(), err);
+                has_error = true;
                 continue;
             }
         }
     }
-    files
+
+    if has_error {
+        Err(io::Error::new(io::ErrorKind::Other, "some files had errors"))
+    } else {
+        Ok(files)
+    }
 }
 
-fn main() {
+fn main() -> ExitCode {
     let args = Args::parse();
 
     if args.check {
         println!("Check mode engaged. No changes will be made.");
     }
 
-    let files = find_files(&args.paths);
-
-    println!("Processing the following files: {:?}", files);
+    match find_files(&args.paths) {
+        Ok(files) => {
+            println!("Processing the following files: {:?}", files);
+            ExitCode::from(0)
+        }
+        Err(_) => ExitCode::from(2),
+    }
 }
