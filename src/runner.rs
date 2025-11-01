@@ -1,6 +1,6 @@
 use crate::find::find_files;
 use crate::format::{check_file, format_file};
-use rayon::prelude::*;
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use std::io;
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
