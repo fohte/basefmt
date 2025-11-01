@@ -22,52 +22,32 @@ pub fn check_file(path: &Path) -> io::Result<bool> {
 }
 
 fn format_content(content: &str) -> String {
-    let content = remove_leading_newlines(content);
-    let content = remove_trailing_spaces(&content);
-    let content = ensure_final_newline(&content);
-    content
-}
-
-fn remove_leading_newlines(content: &str) -> String {
-    let mut lines: Vec<&str> = content.lines().collect();
-
-    while let Some(first) = lines.first() {
-        if first.is_empty() {
-            lines.remove(0);
-        } else {
-            break;
-        }
-    }
-
-    lines.join("\n")
-}
-
-fn remove_trailing_spaces(content: &str) -> String {
-    content
+    let lines: Vec<&str> = content
         .lines()
-        .map(|line| line.trim_end())
-        .collect::<Vec<_>>()
-        .join("\n")
-}
+        .skip_while(|line| line.is_empty())
+        .collect();
 
-fn ensure_final_newline(content: &str) -> String {
-    let mut lines: Vec<&str> = content.lines().collect();
+    // Find the last non-empty line
+    let end = lines
+        .iter()
+        .rposition(|line| !line.is_empty())
+        .map(|pos| pos + 1)
+        .unwrap_or(0);
 
-    // Remove trailing empty lines
-    while let Some(last) = lines.last() {
-        if last.is_empty() {
-            lines.pop();
-        } else {
-            break;
+    if end == 0 {
+        return String::new();
+    }
+
+    // Build result with capacity hint to avoid reallocations
+    let mut result = String::with_capacity(content.len());
+    for (i, line) in lines[..end].iter().enumerate() {
+        if i > 0 {
+            result.push('\n');
         }
+        result.push_str(line.trim_end());
     }
-
-    // Ensure exactly one final newline
-    if lines.is_empty() {
-        String::new()
-    } else {
-        format!("{}\n", lines.join("\n"))
-    }
+    result.push('\n');
+    result
 }
 
 #[cfg(test)]
