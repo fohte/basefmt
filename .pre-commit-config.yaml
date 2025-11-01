@@ -12,3 +12,4 @@ repos:
     rev: 3.4.0
     hooks:
       - id: editorconfig-checker
+        exclude: ^tests/fixtures/
