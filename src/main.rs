@@ -22,7 +22,7 @@ fn main() -> ExitCode {
     };
 
     match result {
-        Ok(result) => ExitCode::from(result.exit_code() as u8),
+        Ok(result) => ExitCode::from(result.exit_code()),
         Err(_) => ExitCode::from(2),
     }
 }

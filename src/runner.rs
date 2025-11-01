@@ -12,7 +12,7 @@ pub struct FormatResult {
 }
 
 impl FormatResult {
-    pub fn exit_code(&self) -> i32 {
+    pub fn exit_code(&self) -> u8 {
         if self.error_count > 0 {
             2
         } else if self.unformatted_count > 0 {
