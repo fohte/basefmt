@@ -23,6 +23,9 @@ fn main() -> ExitCode {
 
     match result {
         Ok(result) => ExitCode::from(result.exit_code()),
-        Err(_) => ExitCode::from(2),
+        Err(err) => {
+            eprintln!("Error: {err}");
+            ExitCode::from(2)
+        }
     }
 }

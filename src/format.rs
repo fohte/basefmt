@@ -1,6 +1,7 @@
 use std::fs;
 use std::io::{self, Write};
 use std::path::Path;
+use tempfile::NamedTempFile;
 
 fn read_and_format(path: &Path) -> io::Result<(String, String)> {
     let content = fs::read_to_string(path).map_err(|err| {
@@ -54,17 +55,16 @@ pub fn format_file(path: &Path) -> io::Result<bool> {
     let changed = content != formatted;
     if changed {
         // Write to a temporary file first, then rename to preserve metadata
-        let temp_path = path.with_extension("tmp");
-        let mut temp_file = fs::File::create(&temp_path)?;
+        let parent_dir = path.parent().unwrap_or_else(|| Path::new("."));
+        let mut temp_file = NamedTempFile::new_in(parent_dir)?;
         temp_file.write_all(formatted.as_bytes())?;
-        temp_file.sync_all()?;
-        drop(temp_file);
+        temp_file.as_file().sync_all()?;
 
-        // Set permissions before renaming
-        fs::set_permissions(&temp_path, metadata.permissions())?;
+        // Set permissions before persisting
+        temp_file.as_file().set_permissions(metadata.permissions())?;
 
         // Atomically replace the original file
-        fs::rename(&temp_path, path)?;
+        temp_file.persist(path)?;
     }
 
     Ok(changed)
