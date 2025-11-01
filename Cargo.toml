@@ -1,0 +1,10 @@
+[package]
+name = "basefmt"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+clap = { version = "4.5.48", features = ["derive"] }
+ignore = "0.4.23"
+rayon = "1.11.0"
+tempfile = "3.23.0"

@@ -3,10 +3,13 @@ repos:
     rev: v5.0.0
     hooks:
       - id: end-of-file-fixer
+        exclude: ^tests/fixtures/
       - id: trailing-whitespace
         args: [--markdown-linebreak-ext=md, --markdown-linebreak-ext=mdx]
+        exclude: ^tests/fixtures/
 
   - repo: https://github.com/editorconfig-checker/editorconfig-checker.python
     rev: 3.4.1
     hooks:
       - id: editorconfig-checker
+        exclude: ^tests/fixtures/

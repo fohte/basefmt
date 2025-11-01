@@ -1,0 +1,3 @@
+line with trailing spaces
+another line with spaces
+last line
