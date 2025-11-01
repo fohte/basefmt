@@ -5,13 +5,23 @@ use std::io;
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+/// Result of a formatting or checking operation.
 pub struct FormatResult {
+    /// Total number of files processed
     pub total_files: usize,
+    /// Number of files that encountered errors
     pub error_count: usize,
+    /// Number of files that were not properly formatted (check mode only)
     pub unformatted_count: usize,
 }
 
 impl FormatResult {
+    /// Returns the appropriate exit code based on the result.
+    ///
+    /// Exit codes:
+    /// - 0: Success (all files formatted/checked successfully)
+    /// - 1: Some files need formatting (check mode only)
+    /// - 2: Errors occurred during processing
     pub fn exit_code(&self) -> u8 {
         if self.error_count > 0 {
             2
@@ -23,6 +33,29 @@ impl FormatResult {
     }
 }
 
+/// Formats files in the specified paths in parallel.
+///
+/// Finds all files in the given paths and formats them concurrently using rayon.
+/// Files are only modified if formatting changes are needed.
+///
+/// # Arguments
+///
+/// * `paths` - A slice of paths (files or directories) to format
+///
+/// # Returns
+///
+/// Returns a `FormatResult` containing statistics about the operation, or an error
+/// if file discovery fails.
+///
+/// # Examples
+///
+/// ```no_run
+/// use basefmt::runner::run_format;
+/// use std::path::Path;
+///
+/// let result = run_format(&[Path::new("src")]).unwrap();
+/// println!("Formatted {} files", result.total_files);
+/// ```
 pub fn run_format(paths: &[impl AsRef<Path>]) -> io::Result<FormatResult> {
     let files = find_files(paths)?;
     let error_count = AtomicUsize::new(0);
@@ -46,6 +79,31 @@ pub fn run_format(paths: &[impl AsRef<Path>]) -> io::Result<FormatResult> {
     })
 }
 
+/// Checks if files in the specified paths are properly formatted, in parallel.
+///
+/// Finds all files in the given paths and checks them concurrently using rayon.
+/// Files are not modified; only checked for proper formatting.
+///
+/// # Arguments
+///
+/// * `paths` - A slice of paths (files or directories) to check
+///
+/// # Returns
+///
+/// Returns a `FormatResult` containing statistics about the operation, including
+/// the number of files that need formatting, or an error if file discovery fails.
+///
+/// # Examples
+///
+/// ```no_run
+/// use basefmt::runner::run_check;
+/// use std::path::Path;
+///
+/// let result = run_check(&[Path::new("src")]).unwrap();
+/// if result.unformatted_count > 0 {
+///     println!("{} files need formatting", result.unformatted_count);
+/// }
+/// ```
 pub fn run_check(paths: &[impl AsRef<Path>]) -> io::Result<FormatResult> {
     let files = find_files(paths)?;
     let error_count = AtomicUsize::new(0);

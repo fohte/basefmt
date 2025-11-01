@@ -3,6 +3,31 @@ use std::io;
 use std::path::Path;
 use std::path::PathBuf;
 
+/// Finds all files in the specified paths, respecting .gitignore patterns.
+///
+/// Recursively searches through directories and returns a list of all files found.
+/// Hidden files and files specified in .gitignore are automatically excluded
+/// by the `ignore` crate.
+///
+/// # Arguments
+///
+/// * `paths` - A slice of paths (files or directories) to search
+///
+/// # Returns
+///
+/// Returns `Ok(Vec<PathBuf>)` containing all files found, or an error if:
+/// - Any path cannot be accessed or read
+/// - Errors occurred during directory traversal
+///
+/// # Examples
+///
+/// ```no_run
+/// use basefmt::find::find_files;
+/// use std::path::Path;
+///
+/// let files = find_files(&[Path::new("src")]).unwrap();
+/// println!("Found {} files", files.len());
+/// ```
 pub fn find_files(paths: &[impl AsRef<Path>]) -> io::Result<Vec<PathBuf>> {
     let mut files: Vec<PathBuf> = Vec::new();
     let mut has_error = false;

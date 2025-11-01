@@ -8,6 +8,36 @@ fn read_and_format(path: &Path) -> io::Result<(String, String)> {
     Ok((content, formatted))
 }
 
+/// Formats a file in place, preserving file permissions and metadata.
+///
+/// Applies formatting rules including:
+/// - Removing leading newlines
+/// - Removing trailing spaces from each line
+/// - Ensuring exactly one final newline
+///
+/// The file is only modified if formatting changes are needed. File permissions
+/// and other metadata are preserved through atomic write-and-rename operation.
+///
+/// # Arguments
+///
+/// * `path` - Path to the file to format
+///
+/// # Returns
+///
+/// Returns `Ok(true)` if the file was modified, `Ok(false)` if no changes were needed,
+/// or an error if the file cannot be read or written.
+///
+/// # Examples
+///
+/// ```no_run
+/// use basefmt::format::format_file;
+/// use std::path::Path;
+///
+/// let changed = format_file(Path::new("file.txt")).unwrap();
+/// if changed {
+///     println!("File was formatted");
+/// }
+/// ```
 pub fn format_file(path: &Path) -> io::Result<bool> {
     let metadata = fs::metadata(path)?;
     let (content, formatted) = read_and_format(path)?;
@@ -31,6 +61,30 @@ pub fn format_file(path: &Path) -> io::Result<bool> {
     Ok(changed)
 }
 
+/// Checks if a file is properly formatted without modifying it.
+///
+/// Returns `true` if the file is already properly formatted, `false` if it needs formatting.
+///
+/// # Arguments
+///
+/// * `path` - Path to the file to check
+///
+/// # Returns
+///
+/// Returns `Ok(true)` if the file is properly formatted, `Ok(false)` if formatting is needed,
+/// or an error if the file cannot be read.
+///
+/// # Examples
+///
+/// ```no_run
+/// use basefmt::format::check_file;
+/// use std::path::Path;
+///
+/// let is_formatted = check_file(Path::new("file.txt")).unwrap();
+/// if !is_formatted {
+///     println!("File needs formatting");
+/// }
+/// ```
 pub fn check_file(path: &Path) -> io::Result<bool> {
     let (content, formatted) = read_and_format(path)?;
     Ok(content == formatted)
