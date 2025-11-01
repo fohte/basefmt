@@ -1,7 +1,9 @@
 use crate::find::find_files;
 use crate::format::{check_file, format_file};
+use rayon::prelude::*;
 use std::io;
 use std::path::Path;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 pub struct FormatResult {
     pub total_files: usize,
@@ -23,51 +25,51 @@ impl FormatResult {
 
 pub fn run_format(paths: &[impl AsRef<Path>]) -> io::Result<FormatResult> {
     let files = find_files(paths)?;
-    let mut error_count = 0;
+    let error_count = AtomicUsize::new(0);
 
-    for file in &files {
+    files.par_iter().for_each(|file| {
         match format_file(file) {
             Ok(_changed) => {
                 // Successfully formatted
             }
             Err(err) => {
                 eprintln!("{}: {}", file.display(), err);
-                error_count += 1;
+                error_count.fetch_add(1, Ordering::Relaxed);
             }
         }
-    }
+    });
 
     Ok(FormatResult {
         total_files: files.len(),
-        error_count,
+        error_count: error_count.load(Ordering::Relaxed),
         unformatted_count: 0,
     })
 }
 
 pub fn run_check(paths: &[impl AsRef<Path>]) -> io::Result<FormatResult> {
     let files = find_files(paths)?;
-    let mut error_count = 0;
-    let mut unformatted_count = 0;
+    let error_count = AtomicUsize::new(0);
+    let unformatted_count = AtomicUsize::new(0);
 
-    for file in &files {
+    files.par_iter().for_each(|file| {
         match check_file(file) {
             Ok(is_clean) => {
                 if !is_clean {
                     eprintln!("{}: not formatted", file.display());
-                    unformatted_count += 1;
+                    unformatted_count.fetch_add(1, Ordering::Relaxed);
                 }
             }
             Err(err) => {
                 eprintln!("{}: {}", file.display(), err);
-                error_count += 1;
+                error_count.fetch_add(1, Ordering::Relaxed);
             }
         }
-    }
+    });
 
     Ok(FormatResult {
         total_files: files.len(),
-        error_count,
-        unformatted_count,
+        error_count: error_count.load(Ordering::Relaxed),
+        unformatted_count: unformatted_count.load(Ordering::Relaxed),
     })
 }
 
