@@ -60,17 +60,36 @@ pub fn run_format(paths: &[impl AsRef<Path>]) -> io::Result<FormatResult> {
     let files = find_files(paths)?;
     let error_count = AtomicUsize::new(0);
 
-    files.par_iter().for_each(|file| {
-        match format_file(file) {
-            Ok(_changed) => {
-                // Successfully formatted
-            }
-            Err(err) => {
-                eprintln!("{}: {}", file.display(), err);
-                error_count.fetch_add(1, Ordering::Relaxed);
+    // Use parallel processing only for larger file counts to avoid overhead
+    const PARALLEL_THRESHOLD: usize = 10;
+
+    if files.len() < PARALLEL_THRESHOLD {
+        // Sequential processing for small workloads
+        for file in &files {
+            match format_file(file) {
+                Ok(_changed) => {
+                    // Successfully formatted
+                }
+                Err(err) => {
+                    eprintln!("{}: {}", file.display(), err);
+                    error_count.fetch_add(1, Ordering::Relaxed);
+                }
             }
         }
-    });
+    } else {
+        // Parallel processing for large workloads
+        files.par_iter().for_each(|file| {
+            match format_file(file) {
+                Ok(_changed) => {
+                    // Successfully formatted
+                }
+                Err(err) => {
+                    eprintln!("{}: {}", file.display(), err);
+                    error_count.fetch_add(1, Ordering::Relaxed);
+                }
+            }
+        });
+    }
 
     Ok(FormatResult {
         total_files: files.len(),
@@ -109,20 +128,42 @@ pub fn run_check(paths: &[impl AsRef<Path>]) -> io::Result<FormatResult> {
     let error_count = AtomicUsize::new(0);
     let unformatted_count = AtomicUsize::new(0);
 
-    files.par_iter().for_each(|file| {
-        match check_file(file) {
-            Ok(is_clean) => {
-                if !is_clean {
-                    eprintln!("{}: not formatted", file.display());
-                    unformatted_count.fetch_add(1, Ordering::Relaxed);
+    // Use parallel processing only for larger file counts to avoid overhead
+    const PARALLEL_THRESHOLD: usize = 10;
+
+    if files.len() < PARALLEL_THRESHOLD {
+        // Sequential processing for small workloads
+        for file in &files {
+            match check_file(file) {
+                Ok(is_clean) => {
+                    if !is_clean {
+                        eprintln!("{}: not formatted", file.display());
+                        unformatted_count.fetch_add(1, Ordering::Relaxed);
+                    }
+                }
+                Err(err) => {
+                    eprintln!("{}: {}", file.display(), err);
+                    error_count.fetch_add(1, Ordering::Relaxed);
                 }
             }
-            Err(err) => {
-                eprintln!("{}: {}", file.display(), err);
-                error_count.fetch_add(1, Ordering::Relaxed);
-            }
         }
-    });
+    } else {
+        // Parallel processing for large workloads
+        files.par_iter().for_each(|file| {
+            match check_file(file) {
+                Ok(is_clean) => {
+                    if !is_clean {
+                        eprintln!("{}: not formatted", file.display());
+                        unformatted_count.fetch_add(1, Ordering::Relaxed);
+                    }
+                }
+                Err(err) => {
+                    eprintln!("{}: {}", file.display(), err);
+                    error_count.fetch_add(1, Ordering::Relaxed);
+                }
+            }
+        });
+    }
 
     Ok(FormatResult {
         total_files: files.len(),
