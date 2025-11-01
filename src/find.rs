@@ -29,7 +29,6 @@ pub fn find_files(paths: &[impl AsRef<Path>]) -> io::Result<Vec<PathBuf>> {
             Err(err) => {
                 eprintln!("{}: {}", path.display(), err);
                 has_error = true;
-                continue;
             }
         }
     }
