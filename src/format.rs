@@ -55,7 +55,14 @@ fn read_and_format(path: &Path) -> io::Result<(String, String, fs::Metadata)> {
 /// }
 /// ```
 pub fn format_file(path: &Path) -> io::Result<bool> {
-    let (content, formatted, metadata) = read_and_format(path)?;
+    let (content, formatted, metadata) = match read_and_format(path) {
+        Ok(result) => result,
+        Err(err) if err.kind() == io::ErrorKind::InvalidData => {
+            // Skip binary files silently
+            return Ok(false);
+        }
+        Err(err) => return Err(err),
+    };
 
     let changed = content != formatted;
     if changed {
@@ -100,7 +107,14 @@ pub fn format_file(path: &Path) -> io::Result<bool> {
 /// }
 /// ```
 pub fn check_file(path: &Path) -> io::Result<bool> {
-    let (content, formatted, _metadata) = read_and_format(path)?;
+    let (content, formatted, _metadata) = match read_and_format(path) {
+        Ok(result) => result,
+        Err(err) if err.kind() == io::ErrorKind::InvalidData => {
+            // Skip binary files silently (treat as already formatted)
+            return Ok(true);
+        }
+        Err(err) => return Err(err),
+    };
     Ok(content == formatted)
 }
 
@@ -252,7 +266,7 @@ mod tests {
     }
 
     #[test]
-    fn test_format_file_rejects_binary() {
+    fn test_format_file_skips_binary() {
         let temp_dir = TempDir::new().unwrap();
         let file_path = temp_dir.path().join("binary.bin");
         // Write invalid UTF-8 bytes
@@ -260,14 +274,17 @@ mod tests {
 
         let result = format_file(&file_path);
 
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
-        assert!(err.to_string().contains("invalid UTF-8"));
+        // Binary files should be skipped silently, returning Ok(false) for no changes
+        assert!(result.is_ok());
+        assert!(!result.unwrap());
+
+        // Verify file was not modified
+        let content = fs::read(&file_path).unwrap();
+        assert_eq!(content, vec![0xFF, 0xFE, 0xFD]);
     }
 
     #[test]
-    fn test_check_file_rejects_binary() {
+    fn test_check_file_skips_binary() {
         let temp_dir = TempDir::new().unwrap();
         let file_path = temp_dir.path().join("binary.bin");
         // Write invalid UTF-8 bytes
@@ -275,9 +292,8 @@ mod tests {
 
         let result = check_file(&file_path);
 
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
-        assert!(err.to_string().contains("invalid UTF-8"));
+        // Binary files should be skipped silently, returning Ok(true) for clean
+        assert!(result.is_ok());
+        assert!(result.unwrap());
     }
 }
