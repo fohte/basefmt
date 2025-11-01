@@ -22,9 +22,15 @@ pub fn check_file(path: &Path) -> io::Result<bool> {
 }
 
 fn format_content(content: &str) -> String {
+    let content = remove_leading_newlines(content);
+    let content = remove_trailing_spaces(&content);
+    let content = ensure_final_newline(&content);
+    content
+}
+
+fn remove_leading_newlines(content: &str) -> String {
     let mut lines: Vec<&str> = content.lines().collect();
 
-    // Remove leading empty lines
     while let Some(first) = lines.first() {
         if first.is_empty() {
             lines.remove(0);
@@ -32,6 +38,20 @@ fn format_content(content: &str) -> String {
             break;
         }
     }
+
+    lines.join("\n")
+}
+
+fn remove_trailing_spaces(content: &str) -> String {
+    content
+        .lines()
+        .map(|line| line.trim_end())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn ensure_final_newline(content: &str) -> String {
+    let mut lines: Vec<&str> = content.lines().collect();
 
     // Remove trailing empty lines
     while let Some(last) = lines.last() {
@@ -42,10 +62,7 @@ fn format_content(content: &str) -> String {
         }
     }
 
-    // Trim trailing spaces from each line
-    let lines: Vec<String> = lines.iter().map(|line| line.trim_end().to_string()).collect();
-
-    // Join with newlines and ensure exactly one final newline
+    // Ensure exactly one final newline
     if lines.is_empty() {
         String::new()
     } else {
