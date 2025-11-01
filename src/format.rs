@@ -2,10 +2,15 @@ use std::fs;
 use std::io::{self, Write};
 use std::path::Path;
 
-pub fn format_file(path: &Path) -> io::Result<bool> {
-    let metadata = fs::metadata(path)?;
+fn read_and_format(path: &Path) -> io::Result<(String, String)> {
     let content = fs::read_to_string(path)?;
     let formatted = format_content(&content);
+    Ok((content, formatted))
+}
+
+pub fn format_file(path: &Path) -> io::Result<bool> {
+    let metadata = fs::metadata(path)?;
+    let (content, formatted) = read_and_format(path)?;
 
     let changed = content != formatted;
     if changed {
@@ -27,9 +32,7 @@ pub fn format_file(path: &Path) -> io::Result<bool> {
 }
 
 pub fn check_file(path: &Path) -> io::Result<bool> {
-    let content = fs::read_to_string(path)?;
-    let formatted = format_content(&content);
-
+    let (content, formatted) = read_and_format(path)?;
     Ok(content == formatted)
 }
 
