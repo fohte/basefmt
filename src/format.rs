@@ -3,7 +3,16 @@ use std::io::{self, Write};
 use std::path::Path;
 
 fn read_and_format(path: &Path) -> io::Result<(String, String)> {
-    let content = fs::read_to_string(path)?;
+    let content = fs::read_to_string(path).map_err(|err| {
+        if err.kind() == io::ErrorKind::InvalidData {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("file contains invalid UTF-8: {err}"),
+            )
+        } else {
+            err
+        }
+    })?;
     let formatted = format_content(&content);
     Ok((content, formatted))
 }
@@ -236,5 +245,35 @@ mod tests {
         // Check permissions are preserved
         let new_mode = fs::metadata(&file_path).unwrap().permissions().mode();
         assert_eq!(original_mode, new_mode);
+    }
+
+    #[test]
+    fn test_format_file_rejects_binary() {
+        let temp_dir = TempDir::new().unwrap();
+        let file_path = temp_dir.path().join("binary.bin");
+        // Write invalid UTF-8 bytes
+        fs::write(&file_path, &[0xFF, 0xFE, 0xFD]).unwrap();
+
+        let result = format_file(&file_path);
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+        assert!(err.to_string().contains("invalid UTF-8"));
+    }
+
+    #[test]
+    fn test_check_file_rejects_binary() {
+        let temp_dir = TempDir::new().unwrap();
+        let file_path = temp_dir.path().join("binary.bin");
+        // Write invalid UTF-8 bytes
+        fs::write(&file_path, &[0xFF, 0xFE, 0xFD]).unwrap();
+
+        let result = check_file(&file_path);
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+        assert!(err.to_string().contains("invalid UTF-8"));
     }
 }
