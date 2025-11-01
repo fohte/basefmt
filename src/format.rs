@@ -100,25 +100,24 @@ pub fn check_file(path: &Path) -> io::Result<bool> {
 }
 
 fn format_content(content: &str) -> String {
-    let lines: Vec<&str> = content
+    // Collect lines while skipping leading empty lines
+    let mut lines: Vec<&str> = content
         .lines()
         .skip_while(|line| line.is_empty())
         .collect();
 
-    // Find the last non-empty line
-    let end = lines
-        .iter()
-        .rposition(|line| !line.is_empty())
-        .map(|pos| pos + 1)
-        .unwrap_or(0);
+    // Remove trailing empty lines
+    while lines.last().is_some_and(|line| line.is_empty()) {
+        lines.pop();
+    }
 
-    if end == 0 {
+    if lines.is_empty() {
         return String::new();
     }
 
     // Build result with capacity hint to avoid reallocations
     let mut result = String::with_capacity(content.len());
-    for (i, line) in lines[..end].iter().enumerate() {
+    for (i, line) in lines.iter().enumerate() {
         if i > 0 {
             result.push('\n');
         }
