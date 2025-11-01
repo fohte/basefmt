@@ -30,7 +30,7 @@ use std::path::PathBuf;
 /// ```
 pub fn find_files(paths: &[impl AsRef<Path>]) -> io::Result<Vec<PathBuf>> {
     let mut files: Vec<PathBuf> = Vec::new();
-    let mut has_error = false;
+    let mut error_paths: Vec<String> = Vec::new();
 
     for path in paths {
         let path = path.as_ref();
@@ -46,22 +46,23 @@ pub fn find_files(paths: &[impl AsRef<Path>]) -> io::Result<Vec<PathBuf>> {
                         }
                         Err(err) => {
                             eprintln!("{}: {}", path.display(), err);
-                            has_error = true;
+                            error_paths.push(path.display().to_string());
                         }
                     }
                 }
             }
             Err(err) => {
                 eprintln!("{}: {}", path.display(), err);
-                has_error = true;
+                error_paths.push(path.display().to_string());
             }
         }
     }
 
-    if has_error {
-        Err(io::Error::other(
-            "some files had errors",
-        ))
+    if !error_paths.is_empty() {
+        Err(io::Error::other(format!(
+            "errors occurred while processing files: {}",
+            error_paths.join(", ")
+        )))
     } else {
         Ok(files)
     }
