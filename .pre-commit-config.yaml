@@ -7,6 +7,6 @@ repos:
         args: [--markdown-linebreak-ext=md, --markdown-linebreak-ext=mdx]
 
   - repo: https://github.com/editorconfig-checker/editorconfig-checker.python
-    rev: 3.4.0
+    rev: 3.4.1
     hooks:
       - id: editorconfig-checker
