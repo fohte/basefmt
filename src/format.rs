@@ -1,10 +1,15 @@
 use std::fs;
-use std::io::{self, Write};
+use std::io::{self, Read, Write};
 use std::path::Path;
 use tempfile::NamedTempFile;
 
-fn read_and_format(path: &Path) -> io::Result<(String, String)> {
-    let content = fs::read_to_string(path).map_err(|err| {
+fn read_and_format(path: &Path) -> io::Result<(String, String, fs::Metadata)> {
+    let file = fs::File::open(path)?;
+    let metadata = file.metadata()?;
+
+    let mut content = String::new();
+    let mut reader = io::BufReader::new(file);
+    reader.read_to_string(&mut content).map_err(|err| {
         if err.kind() == io::ErrorKind::InvalidData {
             io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -14,8 +19,9 @@ fn read_and_format(path: &Path) -> io::Result<(String, String)> {
             err
         }
     })?;
+
     let formatted = format_content(&content);
-    Ok((content, formatted))
+    Ok((content, formatted, metadata))
 }
 
 /// Formats a file in place, preserving file permissions and metadata.
@@ -49,8 +55,7 @@ fn read_and_format(path: &Path) -> io::Result<(String, String)> {
 /// }
 /// ```
 pub fn format_file(path: &Path) -> io::Result<bool> {
-    let metadata = fs::metadata(path)?;
-    let (content, formatted) = read_and_format(path)?;
+    let (content, formatted, metadata) = read_and_format(path)?;
 
     let changed = content != formatted;
     if changed {
@@ -95,7 +100,7 @@ pub fn format_file(path: &Path) -> io::Result<bool> {
 /// }
 /// ```
 pub fn check_file(path: &Path) -> io::Result<bool> {
-    let (content, formatted) = read_and_format(path)?;
+    let (content, formatted, _metadata) = read_and_format(path)?;
     Ok(content == formatted)
 }
 
