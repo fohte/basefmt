@@ -16,7 +16,7 @@ pub fn find_files(paths: &[impl AsRef<Path>]) -> io::Result<Vec<PathBuf>> {
                     match result {
                         Ok(entry) => {
                             if entry.file_type().is_some_and(|ft| ft.is_file()) {
-                                files.push(entry.path().to_path_buf());
+                                files.push(entry.into_path());
                             }
                         }
                         Err(err) => {
