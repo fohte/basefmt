@@ -1,14 +1,26 @@
 use std::fs;
-use std::io;
+use std::io::{self, Write};
 use std::path::Path;
 
 pub fn format_file(path: &Path) -> io::Result<bool> {
+    let metadata = fs::metadata(path)?;
     let content = fs::read_to_string(path)?;
     let formatted = format_content(&content);
 
     let changed = content != formatted;
     if changed {
-        fs::write(path, formatted)?;
+        // Write to a temporary file first, then rename to preserve metadata
+        let temp_path = path.with_extension("tmp");
+        let mut temp_file = fs::File::create(&temp_path)?;
+        temp_file.write_all(formatted.as_bytes())?;
+        temp_file.sync_all()?;
+        drop(temp_file);
+
+        // Set permissions before renaming
+        fs::set_permissions(&temp_path, metadata.permissions())?;
+
+        // Atomically replace the original file
+        fs::rename(&temp_path, path)?;
     }
 
     Ok(changed)
@@ -144,5 +156,28 @@ mod tests {
         let is_clean = check_file(&file_path).unwrap();
 
         assert!(!is_clean);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_format_file_preserves_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp_dir = TempDir::new().unwrap();
+        let file_path = temp_dir.path().join("test.txt");
+        fs::write(&file_path, "\n\ntest content  \n\n").unwrap();
+
+        // Set specific permissions (e.g., 0o644)
+        let perms = fs::Permissions::from_mode(0o755);
+        fs::set_permissions(&file_path, perms).unwrap();
+
+        let original_mode = fs::metadata(&file_path).unwrap().permissions().mode();
+
+        // Format the file
+        format_file(&file_path).unwrap();
+
+        // Check permissions are preserved
+        let new_mode = fs::metadata(&file_path).unwrap().permissions().mode();
+        assert_eq!(original_mode, new_mode);
     }
 }
