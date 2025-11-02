@@ -107,3 +107,73 @@ fn test_check_mode_dirty_file() {
     let after_check = fs::read_to_string(&test_file).unwrap();
     assert_eq!(original_content, after_check);
 }
+
+#[test]
+fn test_format_skips_binary_file() {
+    let temp_dir = TempDir::new().unwrap();
+    let binary_file = temp_dir.path().join("binary.bin");
+    // Write invalid UTF-8 bytes
+    fs::write(&binary_file, &[0xFF, 0xFE, 0xFD]).unwrap();
+
+    let status = basefmt()
+        .arg(binary_file.to_str().unwrap())
+        .status()
+        .unwrap();
+    // Binary files should be silently skipped, exit code 0
+    assert!(status.success());
+    assert_eq!(status.code(), Some(0));
+
+    // Verify file was not modified
+    let content = fs::read(&binary_file).unwrap();
+    assert_eq!(content, vec![0xFF, 0xFE, 0xFD]);
+}
+
+#[test]
+fn test_format_directory_with_binary_file() {
+    let temp_dir = TempDir::new().unwrap();
+
+    // Create a text file that needs formatting
+    let text_file = temp_dir.path().join("text.txt");
+    fs::write(&text_file, "\n\ntest content  \n\n").unwrap();
+
+    // Create a binary file
+    let binary_file = temp_dir.path().join("binary.bin");
+    fs::write(&binary_file, &[0xFF, 0xFE, 0xFD]).unwrap();
+
+    let status = basefmt()
+        .arg(temp_dir.path().to_str().unwrap())
+        .status()
+        .unwrap();
+    // Binary file should be skipped, text file formatted successfully, exit code 0
+    assert!(status.success());
+    assert_eq!(status.code(), Some(0));
+
+    // Text file should be formatted correctly
+    let text_content = fs::read_to_string(&text_file).unwrap();
+    assert_eq!(text_content, "test content\n");
+
+    // Binary file should not be modified
+    let binary_content = fs::read(&binary_file).unwrap();
+    assert_eq!(binary_content, vec![0xFF, 0xFE, 0xFD]);
+}
+
+#[test]
+fn test_check_skips_binary_file() {
+    let temp_dir = TempDir::new().unwrap();
+    let binary_file = temp_dir.path().join("binary.bin");
+    // Write invalid UTF-8 bytes
+    fs::write(&binary_file, &[0xFF, 0xFE, 0xFD]).unwrap();
+
+    let status = basefmt()
+        .arg("--check")
+        .arg(binary_file.to_str().unwrap())
+        .status()
+        .unwrap();
+    // Binary files should be silently skipped, exit code 0
+    assert!(status.success());
+    assert_eq!(status.code(), Some(0));
+
+    // Verify file was not modified
+    let content = fs::read(&binary_file).unwrap();
+    assert_eq!(content, vec![0xFF, 0xFE, 0xFD]);
+}
