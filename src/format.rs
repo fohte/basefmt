@@ -3,25 +3,23 @@ use std::io::{self, Read, Write};
 use std::path::Path;
 use tempfile::NamedTempFile;
 
-fn read_and_format(path: &Path) -> io::Result<(String, String, fs::Metadata)> {
+fn read_and_format(path: &Path) -> io::Result<Option<(String, String, fs::Metadata)>> {
     let file = fs::File::open(path)?;
     let metadata = file.metadata()?;
 
     let mut content = String::new();
     let mut reader = io::BufReader::new(file);
-    reader.read_to_string(&mut content).map_err(|err| {
-        if err.kind() == io::ErrorKind::InvalidData {
-            io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("file contains invalid UTF-8: {err}"),
-            )
-        } else {
-            err
+    match reader.read_to_string(&mut content) {
+        Ok(_) => {
+            let formatted = format_content(&content);
+            Ok(Some((content, formatted, metadata)))
         }
-    })?;
-
-    let formatted = format_content(&content);
-    Ok((content, formatted, metadata))
+        Err(err) if err.kind() == io::ErrorKind::InvalidData => {
+            // Skip binary files silently
+            Ok(None)
+        }
+        Err(err) => Err(err),
+    }
 }
 
 /// Formats a file in place, preserving file permissions and metadata.
@@ -55,31 +53,27 @@ fn read_and_format(path: &Path) -> io::Result<(String, String, fs::Metadata)> {
 /// }
 /// ```
 pub fn format_file(path: &Path) -> io::Result<bool> {
-    let (content, formatted, metadata) = match read_and_format(path) {
-        Ok(result) => result,
-        Err(err) if err.kind() == io::ErrorKind::InvalidData => {
-            // Skip binary files silently
-            return Ok(false);
+    if let Some((content, formatted, metadata)) = read_and_format(path)? {
+        let changed = content != formatted;
+        if changed {
+            // Write to a temporary file first, then rename to preserve metadata
+            let parent_dir = path.parent().unwrap_or_else(|| Path::new("."));
+            let mut temp_file = NamedTempFile::new_in(parent_dir)?;
+            temp_file.write_all(formatted.as_bytes())?;
+            temp_file.as_file().sync_all()?;
+
+            // Set permissions before persisting
+            temp_file.as_file().set_permissions(metadata.permissions())?;
+
+            // Atomically replace the original file
+            temp_file.persist(path)?;
         }
-        Err(err) => return Err(err),
-    };
 
-    let changed = content != formatted;
-    if changed {
-        // Write to a temporary file first, then rename to preserve metadata
-        let parent_dir = path.parent().unwrap_or_else(|| Path::new("."));
-        let mut temp_file = NamedTempFile::new_in(parent_dir)?;
-        temp_file.write_all(formatted.as_bytes())?;
-        temp_file.as_file().sync_all()?;
-
-        // Set permissions before persisting
-        temp_file.as_file().set_permissions(metadata.permissions())?;
-
-        // Atomically replace the original file
-        temp_file.persist(path)?;
+        Ok(changed)
+    } else {
+        // Binary file, skip silently
+        Ok(false)
     }
-
-    Ok(changed)
 }
 
 /// Checks if a file is properly formatted without modifying it.
@@ -107,15 +101,12 @@ pub fn format_file(path: &Path) -> io::Result<bool> {
 /// }
 /// ```
 pub fn check_file(path: &Path) -> io::Result<bool> {
-    let (content, formatted, _metadata) = match read_and_format(path) {
-        Ok(result) => result,
-        Err(err) if err.kind() == io::ErrorKind::InvalidData => {
-            // Skip binary files silently (treat as already formatted)
-            return Ok(true);
-        }
-        Err(err) => return Err(err),
-    };
-    Ok(content == formatted)
+    if let Some((content, formatted, _metadata)) = read_and_format(path)? {
+        Ok(content == formatted)
+    } else {
+        // Binary file, skip silently (treat as already formatted)
+        Ok(true)
+    }
 }
 
 fn format_content(content: &str) -> String {
