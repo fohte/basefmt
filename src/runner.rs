@@ -1,12 +1,12 @@
 use crate::find::find_files;
-use crate::format::{check_file, format_file};
+use crate::format::{check_file, format_file, CheckResult, FormatResult};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use std::io;
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-/// Result of a formatting or checking operation.
-pub struct FormatResult {
+/// Result of a formatting or checking operation on multiple files.
+pub struct RunnerResult {
     /// Total number of files processed
     pub total_files: usize,
     /// Number of files that encountered errors
@@ -15,7 +15,7 @@ pub struct FormatResult {
     pub unformatted_count: usize,
 }
 
-impl FormatResult {
+impl RunnerResult {
     /// Returns the appropriate exit code based on the result.
     ///
     /// Exit codes:
@@ -44,7 +44,7 @@ impl FormatResult {
 ///
 /// # Returns
 ///
-/// Returns a `FormatResult` containing statistics about the operation, or an error
+/// Returns a `RunnerResult` containing statistics about the operation, or an error
 /// if file discovery fails.
 ///
 /// # Examples
@@ -56,7 +56,7 @@ impl FormatResult {
 /// let result = run_format(&[Path::new("src")]).unwrap();
 /// println!("Formatted {} files", result.total_files);
 /// ```
-pub fn run_format(paths: &[impl AsRef<Path>]) -> io::Result<FormatResult> {
+pub fn run_format(paths: &[impl AsRef<Path>]) -> io::Result<RunnerResult> {
     let files = find_files(paths)?;
     let error_count = AtomicUsize::new(0);
 
@@ -67,8 +67,8 @@ pub fn run_format(paths: &[impl AsRef<Path>]) -> io::Result<FormatResult> {
         // Sequential processing for small workloads
         for file in &files {
             match format_file(file) {
-                Ok(_changed) => {
-                    // Successfully formatted
+                Ok(FormatResult::Changed | FormatResult::Unchanged | FormatResult::Skipped) => {
+                    // Successfully formatted or skipped
                 }
                 Err(err) => {
                     eprintln!("{}: {}", file.display(), err);
@@ -80,8 +80,8 @@ pub fn run_format(paths: &[impl AsRef<Path>]) -> io::Result<FormatResult> {
         // Parallel processing for large workloads
         files.par_iter().for_each(|file| {
             match format_file(file) {
-                Ok(_changed) => {
-                    // Successfully formatted
+                Ok(FormatResult::Changed | FormatResult::Unchanged | FormatResult::Skipped) => {
+                    // Successfully formatted or skipped
                 }
                 Err(err) => {
                     eprintln!("{}: {}", file.display(), err);
@@ -91,7 +91,7 @@ pub fn run_format(paths: &[impl AsRef<Path>]) -> io::Result<FormatResult> {
         });
     }
 
-    Ok(FormatResult {
+    Ok(RunnerResult {
         total_files: files.len(),
         error_count: error_count.load(Ordering::Relaxed),
         unformatted_count: 0,
@@ -109,7 +109,7 @@ pub fn run_format(paths: &[impl AsRef<Path>]) -> io::Result<FormatResult> {
 ///
 /// # Returns
 ///
-/// Returns a `FormatResult` containing statistics about the operation, including
+/// Returns a `RunnerResult` containing statistics about the operation, including
 /// the number of files that need formatting, or an error if file discovery fails.
 ///
 /// # Examples
@@ -123,7 +123,7 @@ pub fn run_format(paths: &[impl AsRef<Path>]) -> io::Result<FormatResult> {
 ///     println!("{} files need formatting", result.unformatted_count);
 /// }
 /// ```
-pub fn run_check(paths: &[impl AsRef<Path>]) -> io::Result<FormatResult> {
+pub fn run_check(paths: &[impl AsRef<Path>]) -> io::Result<RunnerResult> {
     let files = find_files(paths)?;
     let error_count = AtomicUsize::new(0);
     let unformatted_count = AtomicUsize::new(0);
@@ -135,11 +135,12 @@ pub fn run_check(paths: &[impl AsRef<Path>]) -> io::Result<FormatResult> {
         // Sequential processing for small workloads
         for file in &files {
             match check_file(file) {
-                Ok(is_clean) => {
-                    if !is_clean {
-                        eprintln!("{}: not formatted", file.display());
-                        unformatted_count.fetch_add(1, Ordering::Relaxed);
-                    }
+                Ok(CheckResult::Formatted | CheckResult::Skipped) => {
+                    // File is properly formatted or skipped
+                }
+                Ok(CheckResult::NeedsFormatting) => {
+                    eprintln!("{}: not formatted", file.display());
+                    unformatted_count.fetch_add(1, Ordering::Relaxed);
                 }
                 Err(err) => {
                     eprintln!("{}: {}", file.display(), err);
@@ -151,11 +152,12 @@ pub fn run_check(paths: &[impl AsRef<Path>]) -> io::Result<FormatResult> {
         // Parallel processing for large workloads
         files.par_iter().for_each(|file| {
             match check_file(file) {
-                Ok(is_clean) => {
-                    if !is_clean {
-                        eprintln!("{}: not formatted", file.display());
-                        unformatted_count.fetch_add(1, Ordering::Relaxed);
-                    }
+                Ok(CheckResult::Formatted | CheckResult::Skipped) => {
+                    // File is properly formatted or skipped
+                }
+                Ok(CheckResult::NeedsFormatting) => {
+                    eprintln!("{}: not formatted", file.display());
+                    unformatted_count.fetch_add(1, Ordering::Relaxed);
                 }
                 Err(err) => {
                     eprintln!("{}: {}", file.display(), err);
@@ -165,7 +167,7 @@ pub fn run_check(paths: &[impl AsRef<Path>]) -> io::Result<FormatResult> {
         });
     }
 
-    Ok(FormatResult {
+    Ok(RunnerResult {
         total_files: files.len(),
         error_count: error_count.load(Ordering::Relaxed),
         unformatted_count: unformatted_count.load(Ordering::Relaxed),
@@ -179,8 +181,8 @@ mod tests {
     use tempfile::TempDir;
 
     #[test]
-    fn test_format_result_exit_code_success() {
-        let result = FormatResult {
+    fn test_runner_result_exit_code_success() {
+        let result = RunnerResult {
             total_files: 5,
             error_count: 0,
             unformatted_count: 0,
@@ -189,8 +191,8 @@ mod tests {
     }
 
     #[test]
-    fn test_format_result_exit_code_unformatted() {
-        let result = FormatResult {
+    fn test_runner_result_exit_code_unformatted() {
+        let result = RunnerResult {
             total_files: 5,
             error_count: 0,
             unformatted_count: 2,
@@ -199,8 +201,8 @@ mod tests {
     }
 
     #[test]
-    fn test_format_result_exit_code_error() {
-        let result = FormatResult {
+    fn test_runner_result_exit_code_error() {
+        let result = RunnerResult {
             total_files: 5,
             error_count: 1,
             unformatted_count: 0,
@@ -209,8 +211,8 @@ mod tests {
     }
 
     #[test]
-    fn test_format_result_exit_code_error_priority() {
-        let result = FormatResult {
+    fn test_runner_result_exit_code_error_priority() {
+        let result = RunnerResult {
             total_files: 5,
             error_count: 1,
             unformatted_count: 2,

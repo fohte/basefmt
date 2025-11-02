@@ -3,6 +3,28 @@ use std::io::{self, Read, Write};
 use std::path::Path;
 use tempfile::NamedTempFile;
 
+/// Result of a format operation.
+#[derive(Debug, PartialEq, Eq)]
+pub enum FormatResult {
+    /// File was modified
+    Changed,
+    /// File was already properly formatted
+    Unchanged,
+    /// File was skipped (e.g., binary file)
+    Skipped,
+}
+
+/// Result of a check operation.
+#[derive(Debug, PartialEq, Eq)]
+pub enum CheckResult {
+    /// File is properly formatted
+    Formatted,
+    /// File needs formatting
+    NeedsFormatting,
+    /// File was skipped (e.g., binary file)
+    Skipped,
+}
+
 fn read_and_format(path: &Path) -> io::Result<Option<(String, String, fs::Metadata)>> {
     let file = fs::File::open(path)?;
     let metadata = file.metadata()?;
@@ -29,6 +51,9 @@ fn read_and_format(path: &Path) -> io::Result<Option<(String, String, fs::Metada
 /// - Removing trailing spaces from each line
 /// - Ensuring exactly one final newline
 ///
+/// Binary files (files containing invalid UTF-8) are silently skipped and
+/// treated as if they don't need formatting.
+///
 /// The file is only modified if formatting changes are needed. File permissions
 /// and other metadata are preserved through atomic write-and-rename operation.
 ///
@@ -38,21 +63,25 @@ fn read_and_format(path: &Path) -> io::Result<Option<(String, String, fs::Metada
 ///
 /// # Returns
 ///
-/// Returns `Ok(true)` if the file was modified, `Ok(false)` if no changes were needed,
-/// or an error if the file cannot be read or written.
+/// Returns:
+/// - `Ok(FormatResult::Changed)` if the file was modified
+/// - `Ok(FormatResult::Unchanged)` if no changes were needed
+/// - `Ok(FormatResult::Skipped)` if the file is binary
+/// - `Err(...)` if the file cannot be read or written
 ///
 /// # Examples
 ///
 /// ```no_run
-/// use basefmt::format::format_file;
+/// use basefmt::format::{format_file, FormatResult};
 /// use std::path::Path;
 ///
-/// let changed = format_file(Path::new("file.txt")).unwrap();
-/// if changed {
-///     println!("File was formatted");
+/// match format_file(Path::new("file.txt")).unwrap() {
+///     FormatResult::Changed => println!("File was formatted"),
+///     FormatResult::Unchanged => println!("File was already formatted"),
+///     FormatResult::Skipped => println!("File was skipped"),
 /// }
 /// ```
-pub fn format_file(path: &Path) -> io::Result<bool> {
+pub fn format_file(path: &Path) -> io::Result<FormatResult> {
     if let Some((content, formatted, metadata)) = read_and_format(path)? {
         let changed = content != formatted;
         if changed {
@@ -67,18 +96,20 @@ pub fn format_file(path: &Path) -> io::Result<bool> {
 
             // Atomically replace the original file
             temp_file.persist(path)?;
-        }
 
-        Ok(changed)
+            Ok(FormatResult::Changed)
+        } else {
+            Ok(FormatResult::Unchanged)
+        }
     } else {
         // Binary file, skip silently
-        Ok(false)
+        Ok(FormatResult::Skipped)
     }
 }
 
 /// Checks if a file is properly formatted without modifying it.
 ///
-/// Returns `true` if the file is already properly formatted, `false` if it needs formatting.
+/// Binary files (files containing invalid UTF-8) are silently skipped.
 ///
 /// # Arguments
 ///
@@ -86,26 +117,34 @@ pub fn format_file(path: &Path) -> io::Result<bool> {
 ///
 /// # Returns
 ///
-/// Returns `Ok(true)` if the file is properly formatted, `Ok(false)` if formatting is needed,
-/// or an error if the file cannot be read.
+/// Returns:
+/// - `Ok(CheckResult::Formatted)` if the file is properly formatted
+/// - `Ok(CheckResult::NeedsFormatting)` if formatting is needed
+/// - `Ok(CheckResult::Skipped)` if the file is binary
+/// - `Err(...)` if the file cannot be read
 ///
 /// # Examples
 ///
 /// ```no_run
-/// use basefmt::format::check_file;
+/// use basefmt::format::{check_file, CheckResult};
 /// use std::path::Path;
 ///
-/// let is_formatted = check_file(Path::new("file.txt")).unwrap();
-/// if !is_formatted {
-///     println!("File needs formatting");
+/// match check_file(Path::new("file.txt")).unwrap() {
+///     CheckResult::Formatted => println!("File is properly formatted"),
+///     CheckResult::NeedsFormatting => println!("File needs formatting"),
+///     CheckResult::Skipped => println!("File was skipped"),
 /// }
 /// ```
-pub fn check_file(path: &Path) -> io::Result<bool> {
+pub fn check_file(path: &Path) -> io::Result<CheckResult> {
     if let Some((content, formatted, _metadata)) = read_and_format(path)? {
-        Ok(content == formatted)
+        if content == formatted {
+            Ok(CheckResult::Formatted)
+        } else {
+            Ok(CheckResult::NeedsFormatting)
+        }
     } else {
-        // Binary file, skip silently (treat as already formatted)
-        Ok(true)
+        // Binary file, skip silently
+        Ok(CheckResult::Skipped)
     }
 }
 
@@ -191,9 +230,9 @@ mod tests {
         let file_path = temp_dir.path().join("test.txt");
         fs::write(&file_path, "\n\ntest content  \n\n").unwrap();
 
-        let changed = format_file(&file_path).unwrap();
+        let result = format_file(&file_path).unwrap();
 
-        assert!(changed);
+        assert_eq!(result, FormatResult::Changed);
         let content = fs::read_to_string(&file_path).unwrap();
         assert_eq!(content, "test content\n");
     }
@@ -204,9 +243,9 @@ mod tests {
         let file_path = temp_dir.path().join("test.txt");
         fs::write(&file_path, "test content\n").unwrap();
 
-        let changed = format_file(&file_path).unwrap();
+        let result = format_file(&file_path).unwrap();
 
-        assert!(!changed);
+        assert_eq!(result, FormatResult::Unchanged);
         let content = fs::read_to_string(&file_path).unwrap();
         assert_eq!(content, "test content\n");
     }
@@ -217,9 +256,9 @@ mod tests {
         let file_path = temp_dir.path().join("test.txt");
         fs::write(&file_path, "test content\n").unwrap();
 
-        let is_clean = check_file(&file_path).unwrap();
+        let result = check_file(&file_path).unwrap();
 
-        assert!(is_clean);
+        assert_eq!(result, CheckResult::Formatted);
     }
 
     #[test]
@@ -228,9 +267,9 @@ mod tests {
         let file_path = temp_dir.path().join("test.txt");
         fs::write(&file_path, "\n\ntest content  \n\n").unwrap();
 
-        let is_clean = check_file(&file_path).unwrap();
+        let result = check_file(&file_path).unwrap();
 
-        assert!(!is_clean);
+        assert_eq!(result, CheckResult::NeedsFormatting);
     }
 
     #[test]
@@ -263,11 +302,10 @@ mod tests {
         // Write invalid UTF-8 bytes
         fs::write(&file_path, &[0xFF, 0xFE, 0xFD]).unwrap();
 
-        let result = format_file(&file_path);
+        let result = format_file(&file_path).unwrap();
 
-        // Binary files should be skipped silently, returning Ok(false) for no changes
-        assert!(result.is_ok());
-        assert!(!result.unwrap());
+        // Binary files should be skipped silently
+        assert_eq!(result, FormatResult::Skipped);
 
         // Verify file was not modified
         let content = fs::read(&file_path).unwrap();
@@ -281,10 +319,9 @@ mod tests {
         // Write invalid UTF-8 bytes
         fs::write(&file_path, &[0xFF, 0xFE, 0xFD]).unwrap();
 
-        let result = check_file(&file_path);
+        let result = check_file(&file_path).unwrap();
 
-        // Binary files should be skipped silently, returning Ok(true) for clean
-        assert!(result.is_ok());
-        assert!(result.unwrap());
+        // Binary files should be skipped silently
+        assert_eq!(result, CheckResult::Skipped);
     }
 }
