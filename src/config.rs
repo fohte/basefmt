@@ -3,13 +3,18 @@ use serde::Deserialize;
 use std::fs;
 use std::io;
 use std::path::Path;
+use std::sync::OnceLock;
 
 /// Configuration for basefmt, typically loaded from .basefmt.toml
-#[derive(Debug, Deserialize, PartialEq)]
+#[derive(Debug, Deserialize)]
 pub struct Config {
     /// List of glob patterns to exclude from formatting
     #[serde(default)]
     pub exclude: Vec<String>,
+
+    /// Cached GlobSet for efficient matching (built lazily)
+    #[serde(skip)]
+    cached_matcher: OnceLock<GlobSet>,
 }
 
 impl Config {
@@ -70,6 +75,8 @@ impl Config {
 
     /// Checks if a file should be excluded based on the exclude patterns.
     ///
+    /// Uses a cached GlobSet for efficient matching across multiple calls.
+    ///
     /// # Arguments
     ///
     /// * `path` - Path to check (can be absolute or relative)
@@ -79,7 +86,17 @@ impl Config {
     /// Returns `Ok(true)` if the file should be excluded, `Ok(false)` if it should
     /// be processed, or an error if the patterns are invalid.
     pub fn is_excluded(&self, path: &Path) -> io::Result<bool> {
-        let matcher = self.build_exclude_matcher()?;
+        // Try to get cached matcher, or build it if not yet initialized
+        let matcher = match self.cached_matcher.get() {
+            Some(m) => m,
+            None => {
+                let m = self.build_exclude_matcher()?;
+                // Ignore error if another thread initialized it first
+                let _ = self.cached_matcher.set(m);
+                // Get the value (either ours or from another thread)
+                self.cached_matcher.get().expect("just initialized")
+            }
+        };
         Ok(matcher.is_match(path))
     }
 }
@@ -88,6 +105,7 @@ impl Default for Config {
     fn default() -> Self {
         Config {
             exclude: Vec::new(),
+            cached_matcher: OnceLock::new(),
         }
     }
 }
@@ -110,7 +128,6 @@ mod tests {
         let config = Config::load(temp_dir.path()).unwrap();
 
         // Should return default config when file doesn't exist
-        assert_eq!(config, Config::default());
         assert!(config.exclude.is_empty());
     }
 
@@ -173,6 +190,7 @@ mod tests {
     fn test_is_excluded_simple_pattern() {
         let config = Config {
             exclude: vec!["*.min.js".to_string()],
+            cached_matcher: OnceLock::new(),
         };
 
         assert!(config.is_excluded(Path::new("app.min.js")).unwrap());
@@ -183,6 +201,7 @@ mod tests {
     fn test_is_excluded_wildcard_pattern() {
         let config = Config {
             exclude: vec!["*.min.*".to_string()],
+            cached_matcher: OnceLock::new(),
         };
 
         assert!(config.is_excluded(Path::new("app.min.js")).unwrap());
@@ -194,6 +213,7 @@ mod tests {
     fn test_is_excluded_directory_pattern() {
         let config = Config {
             exclude: vec!["test/**".to_string()],
+            cached_matcher: OnceLock::new(),
         };
 
         assert!(config.is_excluded(Path::new("test/foo.txt")).unwrap());
@@ -209,6 +229,7 @@ mod tests {
                 "test/**".to_string(),
                 "vendor/**".to_string(),
             ],
+            cached_matcher: OnceLock::new(),
         };
 
         // Should match first pattern
@@ -228,6 +249,7 @@ mod tests {
     fn test_is_excluded_no_patterns() {
         let config = Config {
             exclude: Vec::new(),
+            cached_matcher: OnceLock::new(),
         };
 
         // Nothing should be excluded when there are no patterns
@@ -239,6 +261,7 @@ mod tests {
     fn test_is_excluded_relative_path() {
         let config = Config {
             exclude: vec!["./test/**".to_string()],
+            cached_matcher: OnceLock::new(),
         };
 
         // Glob patterns with ./ prefix require exact match
@@ -252,6 +275,7 @@ mod tests {
     fn test_is_excluded_nested_wildcards() {
         let config = Config {
             exclude: vec!["**/node_modules/**".to_string()],
+            cached_matcher: OnceLock::new(),
         };
 
         assert!(config.is_excluded(Path::new("node_modules/pkg/file.js")).unwrap());
@@ -263,6 +287,7 @@ mod tests {
     fn test_build_exclude_matcher_invalid_pattern() {
         let config = Config {
             exclude: vec!["[invalid".to_string()],
+            cached_matcher: OnceLock::new(),
         };
 
         let result = config.build_exclude_matcher();
@@ -277,6 +302,7 @@ mod tests {
     fn test_is_excluded_specific_file() {
         let config = Config {
             exclude: vec!["specific/file.txt".to_string()],
+            cached_matcher: OnceLock::new(),
         };
 
         assert!(config.is_excluded(Path::new("specific/file.txt")).unwrap());
@@ -288,6 +314,7 @@ mod tests {
     fn test_is_excluded_case_sensitive() {
         let config = Config {
             exclude: vec!["*.TXT".to_string()],
+            cached_matcher: OnceLock::new(),
         };
 
         // Glob patterns are case-sensitive by default
