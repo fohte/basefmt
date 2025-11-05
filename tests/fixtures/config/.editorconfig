@@ -1,0 +1,21 @@
+root = true
+
+[*]
+end_of_line = lf
+charset = utf-8
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# Markdown files keep trailing spaces for line breaks
+[*.md]
+trim_trailing_whitespace = false
+
+# Test fixtures should not be formatted
+[test/fixtures/**]
+insert_final_newline = unset
+trim_trailing_whitespace = unset
+
+# Vendor code should not be formatted
+[vendor/**]
+insert_final_newline = unset
+trim_trailing_whitespace = unset

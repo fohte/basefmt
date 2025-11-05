@@ -1,0 +1,416 @@
+// EditorConfig integration module
+// This module is responsible for reading EditorConfig files and mapping properties
+// to basefmt's formatting rules.
+
+use std::path::Path;
+
+/// Configuration rules for formatting a file
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct FormatRules {
+    /// Whether to ensure the file ends with a newline
+    pub ensure_final_newline: bool,
+    /// Whether to remove trailing spaces from each line
+    pub remove_trailing_spaces: bool,
+    /// Whether to remove leading newlines from the file
+    pub remove_leading_newlines: bool,
+}
+
+/// Get formatting rules for a file from EditorConfig
+///
+/// This function reads the EditorConfig file for the given path and returns
+/// the corresponding formatting rules.
+///
+/// # EditorConfig Property Mapping
+///
+/// - `insert_final_newline` → `ensure_final_newline`
+/// - `trim_trailing_whitespace` → `remove_trailing_spaces`
+/// - `trim_leading_newlines` (custom) → `remove_leading_newlines`
+///
+/// # Property Value Interpretation
+///
+/// - `true` → rule enabled
+/// - `false` → rule disabled
+/// - `unset` → rule disabled
+/// - unset → rule disabled (default)
+pub fn get_format_rules(_path: &Path) -> FormatRules {
+    // TODO: Implement EditorConfig integration
+    FormatRules::default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::TempDir;
+
+    /// Helper to create a temporary .editorconfig file
+    fn create_editorconfig(temp_dir: &TempDir, content: &str) -> std::path::PathBuf {
+        let config_path = temp_dir.path().join(".editorconfig");
+        fs::write(&config_path, content).unwrap();
+        config_path
+    }
+
+    #[test]
+    fn test_basic_properties_true() {
+        // Given: an EditorConfig file with all properties set to true
+        let temp_dir = TempDir::new().unwrap();
+        create_editorconfig(
+            &temp_dir,
+            r#"
+root = true
+
+[*]
+insert_final_newline = true
+trim_trailing_whitespace = true
+trim_leading_newlines = true
+"#,
+        );
+
+        let test_file = temp_dir.path().join("test.txt");
+        fs::write(&test_file, "test").unwrap();
+
+        // When: getting format rules for the file
+        let rules = get_format_rules(&test_file);
+
+        // Then: all rules should be enabled
+        assert_eq!(
+            rules,
+            FormatRules {
+                ensure_final_newline: true,
+                remove_trailing_spaces: true,
+                remove_leading_newlines: true,
+            }
+        );
+    }
+
+    #[test]
+    fn test_properties_explicitly_false() {
+        // Given: an EditorConfig file with properties set to false
+        let temp_dir = TempDir::new().unwrap();
+        create_editorconfig(
+            &temp_dir,
+            r#"
+root = true
+
+[*]
+insert_final_newline = false
+trim_trailing_whitespace = false
+trim_leading_newlines = false
+"#,
+        );
+
+        let test_file = temp_dir.path().join("test.txt");
+        fs::write(&test_file, "test").unwrap();
+
+        // When: getting format rules for the file
+        let rules = get_format_rules(&test_file);
+
+        // Then: all rules should be disabled
+        assert_eq!(
+            rules,
+            FormatRules {
+                ensure_final_newline: false,
+                remove_trailing_spaces: false,
+                remove_leading_newlines: false,
+            }
+        );
+    }
+
+    #[test]
+    fn test_properties_unset() {
+        // Given: an EditorConfig file with properties explicitly set to "unset"
+        let temp_dir = TempDir::new().unwrap();
+        create_editorconfig(
+            &temp_dir,
+            r#"
+root = true
+
+[*]
+insert_final_newline = unset
+trim_trailing_whitespace = unset
+trim_leading_newlines = unset
+"#,
+        );
+
+        let test_file = temp_dir.path().join("test.txt");
+        fs::write(&test_file, "test").unwrap();
+
+        // When: getting format rules for the file
+        let rules = get_format_rules(&test_file);
+
+        // Then: all rules should be disabled (unset means disabled)
+        assert_eq!(
+            rules,
+            FormatRules {
+                ensure_final_newline: false,
+                remove_trailing_spaces: false,
+                remove_leading_newlines: false,
+            }
+        );
+    }
+
+    #[test]
+    fn test_properties_not_set() {
+        // Given: an EditorConfig file without our properties
+        let temp_dir = TempDir::new().unwrap();
+        create_editorconfig(
+            &temp_dir,
+            r#"
+root = true
+
+[*]
+charset = utf-8
+indent_style = space
+"#,
+        );
+
+        let test_file = temp_dir.path().join("test.txt");
+        fs::write(&test_file, "test").unwrap();
+
+        // When: getting format rules for the file
+        let rules = get_format_rules(&test_file);
+
+        // Then: all rules should be disabled (default)
+        assert_eq!(
+            rules,
+            FormatRules {
+                ensure_final_newline: false,
+                remove_trailing_spaces: false,
+                remove_leading_newlines: false,
+            }
+        );
+    }
+
+    #[test]
+    fn test_section_override() {
+        // Given: an EditorConfig file with multiple sections that override each other
+        let temp_dir = TempDir::new().unwrap();
+        create_editorconfig(
+            &temp_dir,
+            r#"
+root = true
+
+[*]
+insert_final_newline = true
+trim_trailing_whitespace = true
+trim_leading_newlines = true
+
+[*.md]
+trim_trailing_whitespace = false
+"#,
+        );
+
+        // When: getting format rules for a Markdown file
+        let md_file = temp_dir.path().join("test.md");
+        fs::write(&md_file, "test").unwrap();
+        let md_rules = get_format_rules(&md_file);
+
+        // Then: trim_trailing_whitespace should be disabled for .md files
+        assert_eq!(
+            md_rules,
+            FormatRules {
+                ensure_final_newline: true,
+                remove_trailing_spaces: false, // overridden
+                remove_leading_newlines: true,
+            }
+        );
+
+        // When: getting format rules for a non-Markdown file
+        let txt_file = temp_dir.path().join("test.txt");
+        fs::write(&txt_file, "test").unwrap();
+        let txt_rules = get_format_rules(&txt_file);
+
+        // Then: all rules should remain enabled
+        assert_eq!(
+            txt_rules,
+            FormatRules {
+                ensure_final_newline: true,
+                remove_trailing_spaces: true,
+                remove_leading_newlines: true,
+            }
+        );
+    }
+
+    #[test]
+    fn test_custom_property_trim_leading_newlines() {
+        // Given: an EditorConfig file with our custom property
+        let temp_dir = TempDir::new().unwrap();
+        create_editorconfig(
+            &temp_dir,
+            r#"
+root = true
+
+[*]
+insert_final_newline = true
+trim_trailing_whitespace = true
+trim_leading_newlines = true
+"#,
+        );
+
+        let test_file = temp_dir.path().join("test.txt");
+        fs::write(&test_file, "test").unwrap();
+
+        // When: getting format rules
+        let rules = get_format_rules(&test_file);
+
+        // Then: the custom property should be respected
+        assert!(rules.remove_leading_newlines);
+    }
+
+    #[test]
+    fn test_directory_pattern_matching() {
+        // Given: an EditorConfig file with directory-specific rules
+        let temp_dir = TempDir::new().unwrap();
+        create_editorconfig(
+            &temp_dir,
+            r#"
+root = true
+
+[*]
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[test/**]
+trim_trailing_whitespace = false
+"#,
+        );
+
+        // When: getting format rules for a file in test/ directory
+        let test_dir = temp_dir.path().join("test");
+        fs::create_dir(&test_dir).unwrap();
+        let test_file = test_dir.join("example.txt");
+        fs::write(&test_file, "test").unwrap();
+        let test_rules = get_format_rules(&test_file);
+
+        // Then: the directory-specific rule should apply
+        assert_eq!(
+            test_rules,
+            FormatRules {
+                ensure_final_newline: true,
+                remove_trailing_spaces: false, // overridden for test/**
+                remove_leading_newlines: false,
+            }
+        );
+
+        // When: getting format rules for a file outside test/ directory
+        let root_file = temp_dir.path().join("root.txt");
+        fs::write(&root_file, "test").unwrap();
+        let root_rules = get_format_rules(&root_file);
+
+        // Then: the default rules should apply
+        assert_eq!(
+            root_rules,
+            FormatRules {
+                ensure_final_newline: true,
+                remove_trailing_spaces: true,
+                remove_leading_newlines: false,
+            }
+        );
+    }
+
+    #[test]
+    fn test_mixed_values() {
+        // Given: an EditorConfig file with a mix of true/false values
+        let temp_dir = TempDir::new().unwrap();
+        create_editorconfig(
+            &temp_dir,
+            r#"
+root = true
+
+[*]
+insert_final_newline = true
+trim_trailing_whitespace = false
+trim_leading_newlines = true
+"#,
+        );
+
+        let test_file = temp_dir.path().join("test.txt");
+        fs::write(&test_file, "test").unwrap();
+
+        // When: getting format rules
+        let rules = get_format_rules(&test_file);
+
+        // Then: rules should match the specified values
+        assert_eq!(
+            rules,
+            FormatRules {
+                ensure_final_newline: true,
+                remove_trailing_spaces: false,
+                remove_leading_newlines: true,
+            }
+        );
+    }
+
+    #[test]
+    fn test_no_editorconfig_file() {
+        // Given: a directory without .editorconfig file
+        let temp_dir = TempDir::new().unwrap();
+        let test_file = temp_dir.path().join("test.txt");
+        fs::write(&test_file, "test").unwrap();
+
+        // When: getting format rules
+        let rules = get_format_rules(&test_file);
+
+        // Then: all rules should be disabled (default)
+        assert_eq!(
+            rules,
+            FormatRules {
+                ensure_final_newline: false,
+                remove_trailing_spaces: false,
+                remove_leading_newlines: false,
+            }
+        );
+    }
+
+    #[test]
+    fn test_extension_pattern_matching() {
+        // Given: an EditorConfig file with extension-specific rules
+        let temp_dir = TempDir::new().unwrap();
+        create_editorconfig(
+            &temp_dir,
+            r#"
+root = true
+
+[*]
+insert_final_newline = true
+
+[*.md]
+insert_final_newline = false
+trim_trailing_whitespace = false
+
+[*.txt]
+trim_trailing_whitespace = true
+"#,
+        );
+
+        // When: getting format rules for .md file
+        let md_file = temp_dir.path().join("README.md");
+        fs::write(&md_file, "test").unwrap();
+        let md_rules = get_format_rules(&md_file);
+
+        // Then: .md specific rules should apply
+        assert_eq!(
+            md_rules,
+            FormatRules {
+                ensure_final_newline: false,
+                remove_trailing_spaces: false,
+                remove_leading_newlines: false,
+            }
+        );
+
+        // When: getting format rules for .txt file
+        let txt_file = temp_dir.path().join("test.txt");
+        fs::write(&txt_file, "test").unwrap();
+        let txt_rules = get_format_rules(&txt_file);
+
+        // Then: .txt specific rules should apply
+        assert_eq!(
+            txt_rules,
+            FormatRules {
+                ensure_final_newline: true,
+                remove_trailing_spaces: true,
+                remove_leading_newlines: false,
+            }
+        );
+    }
+}

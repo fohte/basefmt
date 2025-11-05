@@ -1,0 +1,4 @@
+# Exclude generated code from formatting
+exclude = [
+  "generated/**",
+]
