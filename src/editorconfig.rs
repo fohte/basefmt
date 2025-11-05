@@ -540,4 +540,104 @@ trim_trailing_whitespace = false
             "root=true should stop search and not inherit from parent"
         );
     }
+
+    #[test]
+    fn test_glob_pattern_brace_expansion() {
+        // Given: braces pattern like {js,ts}
+        let temp_dir = TempDir::new().unwrap();
+        create_editorconfig(
+            &temp_dir,
+            r#"
+root = true
+
+[*.{js,ts}]
+insert_final_newline = true
+trim_trailing_whitespace = true
+"#,
+        );
+
+        // Test .js file
+        let js_file = temp_dir.path().join("test.js");
+        fs::write(&js_file, "test").unwrap();
+        let js_rules = get_format_rules(&js_file);
+        assert!(
+            js_rules.ensure_final_newline,
+            "*.{{js,ts}} pattern should match .js files"
+        );
+        assert!(js_rules.remove_trailing_spaces);
+
+        // Test .ts file
+        let ts_file = temp_dir.path().join("test.ts");
+        fs::write(&ts_file, "test").unwrap();
+        let ts_rules = get_format_rules(&ts_file);
+        assert!(
+            ts_rules.ensure_final_newline,
+            "*.{{js,ts}} pattern should match .ts files"
+        );
+        assert!(ts_rules.remove_trailing_spaces);
+
+        // Test .txt file (should not match)
+        let txt_file = temp_dir.path().join("test.txt");
+        fs::write(&txt_file, "test").unwrap();
+        let txt_rules = get_format_rules(&txt_file);
+        assert!(
+            !txt_rules.ensure_final_newline,
+            "*.{{js,ts}} pattern should NOT match .txt files"
+        );
+    }
+
+    #[test]
+    fn test_glob_pattern_character_range() {
+        // Given: character range pattern
+        let temp_dir = TempDir::new().unwrap();
+        create_editorconfig(
+            &temp_dir,
+            r#"
+root = true
+
+[file[0-9].txt]
+insert_final_newline = true
+"#,
+        );
+
+        let file1 = temp_dir.path().join("file5.txt");
+        fs::write(&file1, "test").unwrap();
+        assert!(
+            get_format_rules(&file1).ensure_final_newline,
+            "file[0-9].txt pattern should match file5.txt"
+        );
+
+        let file2 = temp_dir.path().join("fileA.txt");
+        fs::write(&file2, "test").unwrap();
+        assert!(
+            !get_format_rules(&file2).ensure_final_newline,
+            "file[0-9].txt pattern should NOT match fileA.txt"
+        );
+    }
+
+    #[test]
+    fn test_glob_pattern_double_asterisk() {
+        // Given: ** pattern for nested directories
+        let temp_dir = TempDir::new().unwrap();
+        create_editorconfig(
+            &temp_dir,
+            r#"
+root = true
+
+[**/test/*.txt]
+insert_final_newline = true
+"#,
+        );
+
+        let nested_dir = temp_dir.path().join("foo/bar/test");
+        fs::create_dir_all(&nested_dir).unwrap();
+        let nested_file = nested_dir.join("example.txt");
+        fs::write(&nested_file, "test").unwrap();
+
+        let rules = get_format_rules(&nested_file);
+        assert!(
+            rules.ensure_final_newline,
+            "**/test/*.txt pattern should match files in deeply nested test directories"
+        );
+    }
 }
