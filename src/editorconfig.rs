@@ -413,4 +413,131 @@ trim_trailing_whitespace = true
             }
         );
     }
+
+    #[test]
+    fn test_parent_directory_lookup() {
+        // Given: .editorconfig in parent, file in subdirectory
+        let temp_dir = TempDir::new().unwrap();
+        create_editorconfig(
+            &temp_dir,
+            r#"
+root = true
+
+[*]
+insert_final_newline = true
+trim_trailing_whitespace = true
+"#,
+        );
+
+        let sub_dir = temp_dir.path().join("subdir");
+        fs::create_dir(&sub_dir).unwrap();
+        let test_file = sub_dir.join("test.txt");
+        fs::write(&test_file, "test").unwrap();
+
+        // When: getting format rules for the file in subdirectory
+        let rules = get_format_rules(&test_file);
+
+        // Then: should inherit settings from parent directory
+        assert_eq!(
+            rules,
+            FormatRules {
+                ensure_final_newline: true,
+                remove_trailing_spaces: true,
+                remove_leading_newlines: false,
+            },
+            "File in subdirectory should inherit settings from parent .editorconfig"
+        );
+    }
+
+    #[test]
+    fn test_hierarchical_config_merging() {
+        // Given: .editorconfig in both parent and child directories
+        let temp_dir = TempDir::new().unwrap();
+        create_editorconfig(
+            &temp_dir,
+            r#"
+root = true
+
+[*]
+insert_final_newline = true
+trim_trailing_whitespace = true
+"#,
+        );
+
+        let sub_dir = temp_dir.path().join("subdir");
+        fs::create_dir(&sub_dir).unwrap();
+        let child_config = sub_dir.join(".editorconfig");
+        fs::write(
+            &child_config,
+            r#"
+[*]
+trim_trailing_whitespace = false
+trim_leading_newlines = true
+"#,
+        )
+        .unwrap();
+
+        let test_file = sub_dir.join("test.txt");
+        fs::write(&test_file, "test").unwrap();
+
+        // When: getting format rules
+        let rules = get_format_rules(&test_file);
+
+        // Then: child should override parent's trim_trailing_whitespace
+        // but inherit insert_final_newline
+        assert_eq!(
+            rules,
+            FormatRules {
+                ensure_final_newline: true,         // from parent
+                remove_trailing_spaces: false,      // overridden by child
+                remove_leading_newlines: true,      // from child
+            },
+            "Child .editorconfig should override parent settings while inheriting others"
+        );
+    }
+
+    #[test]
+    fn test_root_directive_stops_search() {
+        // Given: two .editorconfig files, child has root=true
+        let temp_dir = TempDir::new().unwrap();
+        create_editorconfig(
+            &temp_dir,
+            r#"
+[*]
+insert_final_newline = true
+trim_trailing_whitespace = true
+"#,
+        );
+
+        let sub_dir = temp_dir.path().join("subdir");
+        fs::create_dir(&sub_dir).unwrap();
+        let child_config = sub_dir.join(".editorconfig");
+        fs::write(
+            &child_config,
+            r#"
+root = true
+
+[*]
+trim_trailing_whitespace = false
+"#,
+        )
+        .unwrap();
+
+        let test_file = sub_dir.join("test.txt");
+        fs::write(&test_file, "test").unwrap();
+
+        // When: getting format rules
+        let rules = get_format_rules(&test_file);
+
+        // Then: should NOT inherit from parent due to root=true in child
+        assert_eq!(
+            rules,
+            FormatRules {
+                ensure_final_newline: false,    // NOT inherited
+                remove_trailing_spaces: false,
+                remove_leading_newlines: false,
+            },
+            "root=true should stop search and not inherit from parent"
+        );
+    }
 }
