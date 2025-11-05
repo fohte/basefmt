@@ -1,3 +1,4 @@
+use crate::editorconfig;
 use std::fs;
 use std::io::{self, Read, Write};
 use std::path::Path;
@@ -20,7 +21,8 @@ fn read_and_format(path: &Path) -> io::Result<(String, String, fs::Metadata)> {
         }
     })?;
 
-    let formatted = format_content(&content);
+    let rules = editorconfig::get_format_rules(path);
+    let formatted = format_content(&content, &rules);
     Ok((content, formatted, metadata))
 }
 
@@ -104,14 +106,24 @@ pub fn check_file(path: &Path) -> io::Result<bool> {
     Ok(content == formatted)
 }
 
-fn format_content(content: &str) -> String {
-    // Collect lines while skipping leading empty lines
-    let mut lines: Vec<&str> = content
-        .lines()
-        .skip_while(|line| line.is_empty())
-        .collect();
+fn format_content(content: &str, rules: &editorconfig::FormatRules) -> String {
+    // If no rules are enabled, return content as-is
+    if !rules.remove_leading_newlines
+        && !rules.remove_trailing_spaces
+        && !rules.ensure_final_newline
+    {
+        return content.to_string();
+    }
 
-    // Remove trailing empty lines
+    // Collect lines, optionally skipping leading empty lines
+    let lines_iter = content.lines();
+    let mut lines: Vec<&str> = if rules.remove_leading_newlines {
+        lines_iter.skip_while(|line| line.is_empty()).collect()
+    } else {
+        lines_iter.collect()
+    };
+
+    // Always remove trailing empty lines (to normalize file endings)
     while lines.last().is_some_and(|line| line.is_empty()) {
         lines.pop();
     }
@@ -126,9 +138,19 @@ fn format_content(content: &str) -> String {
         if i > 0 {
             result.push('\n');
         }
-        result.push_str(line.trim_end());
+        // Optionally trim trailing spaces
+        if rules.remove_trailing_spaces {
+            result.push_str(line.trim_end());
+        } else {
+            result.push_str(line);
+        }
     }
-    result.push('\n');
+
+    // Optionally add final newline
+    if rules.ensure_final_newline {
+        result.push('\n');
+    }
+
     result
 }
 
@@ -138,51 +160,99 @@ mod tests {
     use std::fs;
     use tempfile::TempDir;
 
+    // Helper function to create a .editorconfig file with all rules enabled
+    fn create_default_editorconfig(dir: &TempDir) {
+        let config_path = dir.path().join(".editorconfig");
+        fs::write(
+            config_path,
+            r#"
+root = true
+
+[*]
+insert_final_newline = true
+trim_trailing_whitespace = true
+trim_leading_newlines = true
+"#,
+        )
+        .unwrap();
+    }
+
     #[test]
     fn test_format_content_removes_leading_newlines() {
+        let rules = editorconfig::FormatRules {
+            ensure_final_newline: true,
+            remove_trailing_spaces: true,
+            remove_leading_newlines: true,
+        };
         let input = "\n\nfirst line\nsecond line\n";
         let expected = "first line\nsecond line\n";
-        assert_eq!(format_content(input), expected);
+        assert_eq!(format_content(input, &rules), expected);
     }
 
     #[test]
     fn test_format_content_removes_trailing_spaces() {
+        let rules = editorconfig::FormatRules {
+            ensure_final_newline: true,
+            remove_trailing_spaces: true,
+            remove_leading_newlines: true,
+        };
         let input = "line with trailing spaces   \nanother line with spaces  \n";
         let expected = "line with trailing spaces\nanother line with spaces\n";
-        assert_eq!(format_content(input), expected);
+        assert_eq!(format_content(input, &rules), expected);
     }
 
     #[test]
     fn test_format_content_adds_final_newline() {
+        let rules = editorconfig::FormatRules {
+            ensure_final_newline: true,
+            remove_trailing_spaces: true,
+            remove_leading_newlines: true,
+        };
         let input = "first line\nsecond line";
         let expected = "first line\nsecond line\n";
-        assert_eq!(format_content(input), expected);
+        assert_eq!(format_content(input, &rules), expected);
     }
 
     #[test]
     fn test_format_content_removes_multiple_final_newlines() {
+        let rules = editorconfig::FormatRules {
+            ensure_final_newline: true,
+            remove_trailing_spaces: true,
+            remove_leading_newlines: true,
+        };
         let input = "first line\nsecond line\n\n\n";
         let expected = "first line\nsecond line\n";
-        assert_eq!(format_content(input), expected);
+        assert_eq!(format_content(input, &rules), expected);
     }
 
     #[test]
     fn test_format_content_empty_file() {
+        let rules = editorconfig::FormatRules {
+            ensure_final_newline: true,
+            remove_trailing_spaces: true,
+            remove_leading_newlines: true,
+        };
         let input = "";
         let expected = "";
-        assert_eq!(format_content(input), expected);
+        assert_eq!(format_content(input, &rules), expected);
     }
 
     #[test]
     fn test_format_content_only_newlines() {
+        let rules = editorconfig::FormatRules {
+            ensure_final_newline: true,
+            remove_trailing_spaces: true,
+            remove_leading_newlines: true,
+        };
         let input = "\n\n\n";
         let expected = "";
-        assert_eq!(format_content(input), expected);
+        assert_eq!(format_content(input, &rules), expected);
     }
 
     #[test]
     fn test_format_file_creates_changes() {
         let temp_dir = TempDir::new().unwrap();
+        create_default_editorconfig(&temp_dir);
         let file_path = temp_dir.path().join("test.txt");
         fs::write(&file_path, "\n\ntest content  \n\n").unwrap();
 
@@ -196,6 +266,7 @@ mod tests {
     #[test]
     fn test_format_file_no_changes() {
         let temp_dir = TempDir::new().unwrap();
+        create_default_editorconfig(&temp_dir);
         let file_path = temp_dir.path().join("test.txt");
         fs::write(&file_path, "test content\n").unwrap();
 
@@ -209,6 +280,7 @@ mod tests {
     #[test]
     fn test_check_file_clean() {
         let temp_dir = TempDir::new().unwrap();
+        create_default_editorconfig(&temp_dir);
         let file_path = temp_dir.path().join("test.txt");
         fs::write(&file_path, "test content\n").unwrap();
 
@@ -220,6 +292,7 @@ mod tests {
     #[test]
     fn test_check_file_dirty() {
         let temp_dir = TempDir::new().unwrap();
+        create_default_editorconfig(&temp_dir);
         let file_path = temp_dir.path().join("test.txt");
         fs::write(&file_path, "\n\ntest content  \n\n").unwrap();
 
@@ -234,6 +307,7 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
 
         let temp_dir = TempDir::new().unwrap();
+        create_default_editorconfig(&temp_dir);
         let file_path = temp_dir.path().join("test.txt");
         fs::write(&file_path, "\n\ntest content  \n\n").unwrap();
 

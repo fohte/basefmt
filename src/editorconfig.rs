@@ -2,6 +2,7 @@
 // This module is responsible for reading EditorConfig files and mapping properties
 // to basefmt's formatting rules.
 
+use ec4rs::property::{FinalNewline, TrimTrailingWs};
 use std::path::Path;
 
 /// Configuration rules for formatting a file
@@ -32,9 +33,54 @@ pub struct FormatRules {
 /// - `false` → rule disabled
 /// - `unset` → rule disabled
 /// - unset → rule disabled (default)
-pub fn get_format_rules(_path: &Path) -> FormatRules {
-    // TODO: Implement EditorConfig integration
-    FormatRules::default()
+pub fn get_format_rules(path: &Path) -> FormatRules {
+    // Resolve symlinks to get the real path
+    let resolved_path = match path.canonicalize() {
+        Ok(p) => p,
+        Err(_) => return FormatRules::default(),
+    };
+
+    // Get EditorConfig properties for this file
+    let properties = match ec4rs::properties_from_config_of(&resolved_path, None::<&Path>) {
+        Ok(props) => props,
+        Err(_) => return FormatRules::default(),
+    };
+
+    // Parse boolean property helper
+    let parse_bool_value = |prop: &str| -> bool {
+        match prop.to_lowercase().as_str() {
+            "true" => true,
+            "false" => false,
+            _ => false,
+        }
+    };
+
+    // Get insert_final_newline property
+    let ensure_final_newline = properties
+        .get::<FinalNewline>()
+        .ok()
+        .map(|prop| matches!(prop, FinalNewline::Value(true)))
+        .unwrap_or(false);
+
+    // Get trim_trailing_whitespace property
+    let remove_trailing_spaces = properties
+        .get::<TrimTrailingWs>()
+        .ok()
+        .map(|prop| matches!(prop, TrimTrailingWs::Value(true)))
+        .unwrap_or(false);
+
+    // Get custom trim_leading_newlines property
+    let remove_leading_newlines = properties
+        .get_raw_for_key("trim_leading_newlines")
+        .into_option()
+        .map(parse_bool_value)
+        .unwrap_or(false);
+
+    FormatRules {
+        ensure_final_newline,
+        remove_trailing_spaces,
+        remove_leading_newlines,
+    }
 }
 
 #[cfg(test)]

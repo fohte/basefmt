@@ -32,6 +32,22 @@ fn setup_test_file(temp_dir: &TempDir, fixture_name: &str) -> PathBuf {
     temp_file
 }
 
+// Helper function to create a .editorconfig file with all rules enabled
+fn create_default_editorconfig(dir: &TempDir) {
+    let config_path = dir.path().join(".editorconfig");
+    fs::write(
+        config_path,
+        r#"root = true
+
+[*]
+insert_final_newline = true
+trim_trailing_whitespace = true
+trim_leading_newlines = true
+"#,
+    )
+    .unwrap();
+}
+
 fn read_expected(fixture_name: &str) -> String {
     let expected_path = PathBuf::from("tests/fixtures/expected").join(fixture_name);
     fs::read_to_string(expected_path).unwrap()
@@ -48,6 +64,7 @@ fn test_format_single_files() {
 
     for fixture_name in test_cases {
         let temp_dir = TempDir::new().unwrap();
+        create_default_editorconfig(&temp_dir);
         let test_file = setup_test_file(&temp_dir, fixture_name);
 
         let status = basefmt().arg(test_file.to_str().unwrap()).status().unwrap();
@@ -65,6 +82,7 @@ fn test_format_single_files() {
 #[test]
 fn test_format_directory() {
     let temp_dir = TempDir::new().unwrap();
+    create_default_editorconfig(&temp_dir);
     setup_test_file(&temp_dir, "leading_newlines.txt");
     setup_test_file(&temp_dir, "no_final_newline.txt");
     setup_test_file(&temp_dir, "trailing_space.txt");
@@ -96,6 +114,7 @@ fn test_format_directory() {
 #[test]
 fn test_check_mode_clean_file() {
     let temp_dir = TempDir::new().unwrap();
+    create_default_editorconfig(&temp_dir);
     let expected_path = PathBuf::from("tests/fixtures/expected/leading_newlines.txt");
     let test_file = temp_dir.path().join("leading_newlines.txt");
     fs::copy(&expected_path, &test_file).unwrap();
@@ -111,6 +130,7 @@ fn test_check_mode_clean_file() {
 #[test]
 fn test_check_mode_dirty_file() {
     let temp_dir = TempDir::new().unwrap();
+    create_default_editorconfig(&temp_dir);
     let test_file = setup_test_file(&temp_dir, "leading_newlines.txt");
     let original_content = fs::read_to_string(&test_file).unwrap();
 
@@ -162,7 +182,7 @@ fn test_editorconfig_and_exclude_integration() {
     .unwrap();
     fs::write(
         temp_dir.path().join("markdown.md"),
-        "# Markdown\nTrailing spaces  \n  \n",
+        "# Markdown\nTrailing spaces  \n  \n\n",
     )
     .unwrap();
     fs::write(
@@ -199,8 +219,14 @@ fn test_editorconfig_and_exclude_integration() {
     // Test 2: markdown.md should keep trailing spaces (EditorConfig: trim_trailing_whitespace = false)
     let md_content = fs::read_to_string(temp_dir.path().join("markdown.md")).unwrap();
     assert!(
-        md_content.ends_with("  \n\n"),
-        "markdown.md should preserve trailing spaces due to EditorConfig"
+        md_content.ends_with("  \n"),
+        "markdown.md should preserve trailing spaces due to EditorConfig. Got: {:?}",
+        md_content
+    );
+    assert_eq!(
+        md_content,
+        "# Markdown\nTrailing spaces  \n  \n",
+        "markdown.md formatting incorrect"
     );
 
     // Test 3: test/fixtures/data.txt should not be formatted (EditorConfig: unset)
@@ -236,8 +262,9 @@ fn test_editorconfig_disables_formatting() {
     let fixture_src = PathBuf::from("tests/fixtures/config");
     copy_dir_recursive(&fixture_src, temp_dir.path()).unwrap();
 
-    // Test markdown file specifically
+    // Create markdown file with trailing spaces
     let md_path = temp_dir.path().join("markdown.md");
+    fs::write(&md_path, "# Test\ntrailing spaces  \n").unwrap();
 
     let status = basefmt().arg(md_path.to_str().unwrap()).status().unwrap();
     assert!(status.success());
@@ -260,10 +287,11 @@ fn test_basefmt_exclude_overrides_editorconfig() {
     let fixture_src = PathBuf::from("tests/fixtures/config");
     copy_dir_recursive(&fixture_src, temp_dir.path()).unwrap();
 
-    // generated/output.rs has EditorConfig settings enabled (through [*])
-    // but should still be excluded by .basefmt.toml
+    // Create generated directory and file
+    fs::create_dir_all(temp_dir.path().join("generated")).unwrap();
     let generated_path = temp_dir.path().join("generated/output.rs");
-    let original_content = fs::read_to_string(&generated_path).unwrap();
+    let original_content = "// generated code with trailing spaces  \n\n\n";
+    fs::write(&generated_path, original_content).unwrap();
 
     let status = basefmt()
         .arg(temp_dir.path().to_str().unwrap())
@@ -289,6 +317,10 @@ fn test_check_mode_with_config() {
     let fixture_src = PathBuf::from("tests/fixtures/config");
     copy_dir_recursive(&fixture_src, temp_dir.path()).unwrap();
 
+    // Create a file that needs formatting
+    let normal_path = temp_dir.path().join("normal.txt");
+    fs::write(&normal_path, "normal file with trailing spaces  \n\n\n").unwrap();
+
     // Check mode should report that normal.txt needs formatting
     // but should not report excluded files as needing formatting
     let status = basefmt()
@@ -301,7 +333,7 @@ fn test_check_mode_with_config() {
     assert!(!status.success());
 
     // All files should remain unchanged
-    let normal_content = fs::read_to_string(temp_dir.path().join("normal.txt")).unwrap();
+    let normal_content = fs::read_to_string(&normal_path).unwrap();
     assert!(
         normal_content.ends_with("  \n\n\n"),
         "check mode should not modify files"
@@ -317,8 +349,11 @@ fn test_editorconfig_unset_disables_formatting() {
     let fixture_src = PathBuf::from("tests/fixtures/config");
     copy_dir_recursive(&fixture_src, temp_dir.path()).unwrap();
 
+    // Create vendor directory and file
+    fs::create_dir_all(temp_dir.path().join("vendor")).unwrap();
     let vendor_path = temp_dir.path().join("vendor/lib.js");
-    let original_content = fs::read_to_string(&vendor_path).unwrap();
+    let original_content = "// vendor library with trailing spaces  \n\n\n";
+    fs::write(&vendor_path, original_content).unwrap();
 
     let status = basefmt()
         .arg(temp_dir.path().to_str().unwrap())
@@ -343,6 +378,31 @@ fn test_multiple_exclusion_patterns() {
     // Copy the config fixture
     let fixture_src = PathBuf::from("tests/fixtures/config");
     copy_dir_recursive(&fixture_src, temp_dir.path()).unwrap();
+
+    // Create test files
+    fs::create_dir_all(temp_dir.path().join("test/fixtures")).unwrap();
+    fs::create_dir_all(temp_dir.path().join("generated")).unwrap();
+
+    fs::write(
+        temp_dir.path().join("test/fixtures/data.txt"),
+        "test data with trailing spaces  \n\n\n",
+    )
+    .unwrap();
+    fs::write(
+        temp_dir.path().join("markdown.md"),
+        "# Markdown\ntrailing spaces  \n\n\n",
+    )
+    .unwrap();
+    fs::write(
+        temp_dir.path().join("generated/output.rs"),
+        "// generated code with trailing spaces  \n\n\n",
+    )
+    .unwrap();
+    fs::write(
+        temp_dir.path().join("normal.txt"),
+        "normal file with trailing spaces  \n\n\n",
+    )
+    .unwrap();
 
     let status = basefmt()
         .arg(temp_dir.path().to_str().unwrap())

@@ -1,3 +1,4 @@
+use crate::config::Config;
 use crate::find::find_files;
 use crate::format::{check_file, format_file};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
@@ -57,15 +58,56 @@ impl FormatResult {
 /// println!("Formatted {} files", result.total_files);
 /// ```
 pub fn run_format(paths: &[impl AsRef<Path>]) -> io::Result<FormatResult> {
+    // Determine config directory from the first path
+    let config_dir = if let Some(first_path) = paths.first() {
+        let path = first_path.as_ref();
+        if path.is_dir() {
+            path
+        } else {
+            path.parent().unwrap_or_else(|| Path::new("."))
+        }
+    } else {
+        Path::new(".")
+    };
+
+    let config = Config::load(config_dir).unwrap_or_default();
     let files = find_files(paths)?;
+
+    // Get absolute path of config_dir for relative path calculation
+    let config_dir_abs = config_dir.canonicalize().unwrap_or_else(|_| config_dir.to_path_buf());
+
+    // Filter out excluded files
+    let mut filtered_files = Vec::new();
+    for file in &files {
+        // Canonicalize file path to ensure consistent path comparison
+        let file_abs = file.canonicalize().unwrap_or_else(|_| file.to_path_buf());
+
+        // Convert to relative path for glob matching
+        let rel_path = file_abs
+            .strip_prefix(&config_dir_abs)
+            .unwrap_or(file.as_path());
+
+        match config.is_excluded(rel_path) {
+            Ok(true) => {
+                // File is excluded, skip it
+            }
+            Ok(false) => {
+                filtered_files.push(file.clone());
+            }
+            Err(err) => {
+                eprintln!("{}: {}", file.display(), err);
+            }
+        }
+    }
+
     let error_count = AtomicUsize::new(0);
 
     // Use parallel processing only for larger file counts to avoid overhead
     const PARALLEL_THRESHOLD: usize = 10;
 
-    if files.len() < PARALLEL_THRESHOLD {
+    if filtered_files.len() < PARALLEL_THRESHOLD {
         // Sequential processing for small workloads
-        for file in &files {
+        for file in &filtered_files {
             match format_file(file) {
                 Ok(_changed) => {
                     // Successfully formatted
@@ -78,7 +120,7 @@ pub fn run_format(paths: &[impl AsRef<Path>]) -> io::Result<FormatResult> {
         }
     } else {
         // Parallel processing for large workloads
-        files.par_iter().for_each(|file| {
+        filtered_files.par_iter().for_each(|file| {
             match format_file(file) {
                 Ok(_changed) => {
                     // Successfully formatted
@@ -92,7 +134,7 @@ pub fn run_format(paths: &[impl AsRef<Path>]) -> io::Result<FormatResult> {
     }
 
     Ok(FormatResult {
-        total_files: files.len(),
+        total_files: filtered_files.len(),
         error_count: error_count.load(Ordering::Relaxed),
         unformatted_count: 0,
     })
@@ -124,16 +166,57 @@ pub fn run_format(paths: &[impl AsRef<Path>]) -> io::Result<FormatResult> {
 /// }
 /// ```
 pub fn run_check(paths: &[impl AsRef<Path>]) -> io::Result<FormatResult> {
+    // Determine config directory from the first path
+    let config_dir = if let Some(first_path) = paths.first() {
+        let path = first_path.as_ref();
+        if path.is_dir() {
+            path
+        } else {
+            path.parent().unwrap_or_else(|| Path::new("."))
+        }
+    } else {
+        Path::new(".")
+    };
+
+    let config = Config::load(config_dir).unwrap_or_default();
     let files = find_files(paths)?;
+
+    // Get absolute path of config_dir for relative path calculation
+    let config_dir_abs = config_dir.canonicalize().unwrap_or_else(|_| config_dir.to_path_buf());
+
+    // Filter out excluded files
+    let mut filtered_files = Vec::new();
+    for file in &files {
+        // Canonicalize file path to ensure consistent path comparison
+        let file_abs = file.canonicalize().unwrap_or_else(|_| file.to_path_buf());
+
+        // Convert to relative path for glob matching
+        let rel_path = file_abs
+            .strip_prefix(&config_dir_abs)
+            .unwrap_or(file.as_path());
+
+        match config.is_excluded(rel_path) {
+            Ok(true) => {
+                // File is excluded, skip it
+            }
+            Ok(false) => {
+                filtered_files.push(file.clone());
+            }
+            Err(err) => {
+                eprintln!("{}: {}", file.display(), err);
+            }
+        }
+    }
+
     let error_count = AtomicUsize::new(0);
     let unformatted_count = AtomicUsize::new(0);
 
     // Use parallel processing only for larger file counts to avoid overhead
     const PARALLEL_THRESHOLD: usize = 10;
 
-    if files.len() < PARALLEL_THRESHOLD {
+    if filtered_files.len() < PARALLEL_THRESHOLD {
         // Sequential processing for small workloads
-        for file in &files {
+        for file in &filtered_files {
             match check_file(file) {
                 Ok(is_clean) => {
                     if !is_clean {
@@ -149,7 +232,7 @@ pub fn run_check(paths: &[impl AsRef<Path>]) -> io::Result<FormatResult> {
         }
     } else {
         // Parallel processing for large workloads
-        files.par_iter().for_each(|file| {
+        filtered_files.par_iter().for_each(|file| {
             match check_file(file) {
                 Ok(is_clean) => {
                     if !is_clean {
@@ -166,7 +249,7 @@ pub fn run_check(paths: &[impl AsRef<Path>]) -> io::Result<FormatResult> {
     }
 
     Ok(FormatResult {
-        total_files: files.len(),
+        total_files: filtered_files.len(),
         error_count: error_count.load(Ordering::Relaxed),
         unformatted_count: unformatted_count.load(Ordering::Relaxed),
     })
@@ -177,6 +260,23 @@ mod tests {
     use super::*;
     use std::fs;
     use tempfile::TempDir;
+
+    // Helper function to create a .editorconfig file with all rules enabled
+    fn create_default_editorconfig(dir: &TempDir) {
+        let config_path = dir.path().join(".editorconfig");
+        fs::write(
+            config_path,
+            r#"
+root = true
+
+[*]
+insert_final_newline = true
+trim_trailing_whitespace = true
+trim_leading_newlines = true
+"#,
+        )
+        .unwrap();
+    }
 
     #[test]
     fn test_format_result_exit_code_success() {
@@ -222,6 +322,7 @@ mod tests {
     #[test]
     fn test_run_format_single_file() {
         let temp_dir = TempDir::new().unwrap();
+        create_default_editorconfig(&temp_dir);
         let file = temp_dir.path().join("test.txt");
         fs::write(&file, "\n\ntest content  \n\n").unwrap();
 
@@ -239,6 +340,7 @@ mod tests {
     #[test]
     fn test_run_format_multiple_files() {
         let temp_dir = TempDir::new().unwrap();
+        create_default_editorconfig(&temp_dir);
         let file1 = temp_dir.path().join("file1.txt");
         let file2 = temp_dir.path().join("file2.txt");
         fs::write(&file1, "\n\ntest1  \n").unwrap();
@@ -278,6 +380,7 @@ mod tests {
     #[test]
     fn test_run_check_clean_files() {
         let temp_dir = TempDir::new().unwrap();
+        create_default_editorconfig(&temp_dir);
         let file1 = temp_dir.path().join("file1.txt");
         let file2 = temp_dir.path().join("file2.txt");
         fs::write(&file1, "test1\n").unwrap();
@@ -294,6 +397,7 @@ mod tests {
     #[test]
     fn test_run_check_unformatted_files() {
         let temp_dir = TempDir::new().unwrap();
+        create_default_editorconfig(&temp_dir);
         let file1 = temp_dir.path().join("file1.txt");
         let file2 = temp_dir.path().join("file2.txt");
         fs::write(&file1, "\n\ntest1\n").unwrap();
@@ -310,6 +414,7 @@ mod tests {
     #[test]
     fn test_run_check_mixed_files() {
         let temp_dir = TempDir::new().unwrap();
+        create_default_editorconfig(&temp_dir);
         let file1 = temp_dir.path().join("file1.txt");
         let file2 = temp_dir.path().join("file2.txt");
         fs::write(&file1, "test1\n").unwrap();
