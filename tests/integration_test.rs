@@ -140,6 +140,33 @@ fn test_editorconfig_and_exclude_integration() {
     let fixture_src = PathBuf::from("tests/fixtures/config");
     copy_dir_recursive(&fixture_src, temp_dir.path()).unwrap();
 
+    // Ensure trailing spaces in test files (editors/git might strip them)
+    fs::write(
+        temp_dir.path().join("normal.txt"),
+        "normal file with trailing spaces  \n\n\n",
+    )
+    .unwrap();
+    fs::write(
+        temp_dir.path().join("markdown.md"),
+        "# Markdown\nTrailing spaces  \n  \n",
+    )
+    .unwrap();
+    fs::write(
+        temp_dir.path().join("test/fixtures/data.txt"),
+        "test data with trailing spaces  \n\n\n",
+    )
+    .unwrap();
+    fs::write(
+        temp_dir.path().join("vendor/lib.js"),
+        "// vendor library with trailing spaces  \n\n\n",
+    )
+    .unwrap();
+    fs::write(
+        temp_dir.path().join("generated/output.rs"),
+        "// generated code with trailing spaces  \n\n\n",
+    )
+    .unwrap();
+
     // Run basefmt on the entire directory
     let status = basefmt()
         .arg(temp_dir.path().to_str().unwrap())
