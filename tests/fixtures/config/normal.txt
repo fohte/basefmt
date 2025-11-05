@@ -1,3 +1,0 @@
-normal file with trailing spaces
-
-

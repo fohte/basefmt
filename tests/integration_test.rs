@@ -136,11 +136,25 @@ fn test_check_mode_dirty_file() {
 fn test_editorconfig_and_exclude_integration() {
     let temp_dir = TempDir::new().unwrap();
 
-    // Copy the entire config fixture directory to temp location
+    // Copy .editorconfig and .basefmt.toml from fixtures
     let fixture_src = PathBuf::from("tests/fixtures/config");
-    copy_dir_recursive(&fixture_src, temp_dir.path()).unwrap();
+    fs::copy(
+        fixture_src.join(".editorconfig"),
+        temp_dir.path().join(".editorconfig"),
+    )
+    .unwrap();
+    fs::copy(
+        fixture_src.join(".basefmt.toml"),
+        temp_dir.path().join(".basefmt.toml"),
+    )
+    .unwrap();
 
-    // Ensure trailing spaces in test files (editors/git might strip them)
+    // Create directory structure
+    fs::create_dir_all(temp_dir.path().join("test/fixtures")).unwrap();
+    fs::create_dir_all(temp_dir.path().join("vendor")).unwrap();
+    fs::create_dir_all(temp_dir.path().join("generated")).unwrap();
+
+    // Generate test files with guaranteed trailing spaces
     fs::write(
         temp_dir.path().join("normal.txt"),
         "normal file with trailing spaces  \n\n\n",
