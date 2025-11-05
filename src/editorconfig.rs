@@ -640,4 +640,86 @@ insert_final_newline = true
             "**/test/*.txt pattern should match files in deeply nested test directories"
         );
     }
+
+    #[test]
+    fn test_invalid_boolean_value() {
+        // Given: invalid boolean value in config
+        let temp_dir = TempDir::new().unwrap();
+        create_editorconfig(
+            &temp_dir,
+            r#"
+root = true
+
+[*]
+insert_final_newline = invalid_value
+"#,
+        );
+
+        let test_file = temp_dir.path().join("test.txt");
+        fs::write(&test_file, "test").unwrap();
+
+        // When: getting format rules
+        let rules = get_format_rules(&test_file);
+
+        // Then: should treat as false/disabled (graceful handling)
+        assert_eq!(
+            rules,
+            FormatRules::default(),
+            "Invalid boolean values should be treated as false/disabled"
+        );
+    }
+
+    #[test]
+    fn test_malformed_editorconfig() {
+        // Given: syntactically invalid .editorconfig
+        let temp_dir = TempDir::new().unwrap();
+        let config_path = temp_dir.path().join(".editorconfig");
+        fs::write(&config_path, "this is not valid INI format [[[").unwrap();
+
+        let test_file = temp_dir.path().join("test.txt");
+        fs::write(&test_file, "test").unwrap();
+
+        // When: getting format rules
+        let rules = get_format_rules(&test_file);
+
+        // Then: should return default rules without panicking
+        assert_eq!(
+            rules,
+            FormatRules::default(),
+            "Malformed .editorconfig should be handled gracefully"
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_symlink_handling() {
+        use std::os::unix::fs as unix_fs;
+
+        // Given: file accessed through symlink
+        let temp_dir = TempDir::new().unwrap();
+        create_editorconfig(
+            &temp_dir,
+            r#"
+root = true
+
+[*]
+insert_final_newline = true
+"#,
+        );
+
+        let real_file = temp_dir.path().join("real.txt");
+        fs::write(&real_file, "test").unwrap();
+
+        let link_file = temp_dir.path().join("link.txt");
+        unix_fs::symlink(&real_file, &link_file).unwrap();
+
+        // When: getting format rules via symlink
+        let rules = get_format_rules(&link_file);
+
+        // Then: should resolve symlink and find .editorconfig
+        assert!(
+            rules.ensure_final_newline,
+            "Symlinks should be resolved to find .editorconfig"
+        );
+    }
 }
