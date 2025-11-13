@@ -35,8 +35,14 @@ impl FormatResult {
     }
 }
 
+/// A file that needs to be formatted along with its formatting rules.
+///
+/// This structure pre-computes and caches the formatting rules for each file
+/// to avoid redundant EditorConfig lookups during parallel processing.
 struct FileTask {
+    /// Original path to the file (may be relative or absolute)
     path: PathBuf,
+    /// Cached formatting rules from EditorConfig
     rules: FormatRules,
 }
 
@@ -217,8 +223,8 @@ fn collect_tasks(
         let canonical = match path.canonicalize() {
             Ok(abs) => abs,
             Err(err) => {
-                eprintln!("{}: {}", path.display(), err);
-                path.clone()
+                eprintln!("{}: failed to canonicalize: {}", path.display(), err);
+                continue;
             }
         };
 
@@ -229,7 +235,7 @@ fn collect_tasks(
         let is_excluded = match config.is_excluded(rel_path) {
             Ok(result) => result,
             Err(err) => {
-                eprintln!("{}: {}", path.display(), err);
+                eprintln!("{}: failed to check exclusion: {}", path.display(), err);
                 continue;
             }
         };
