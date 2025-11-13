@@ -354,7 +354,7 @@ trim_leading_newlines = true
         let temp_dir = TempDir::new().unwrap();
         let file_path = temp_dir.path().join("binary.bin");
         // Write invalid UTF-8 bytes
-        fs::write(&file_path, &[0xFF, 0xFE, 0xFD]).unwrap();
+        fs::write(&file_path, [0xFF, 0xFE, 0xFD]).unwrap();
 
         let result = format_file(&file_path);
 
@@ -369,7 +369,7 @@ trim_leading_newlines = true
         let temp_dir = TempDir::new().unwrap();
         let file_path = temp_dir.path().join("binary.bin");
         // Write invalid UTF-8 bytes
-        fs::write(&file_path, &[0xFF, 0xFE, 0xFD]).unwrap();
+        fs::write(&file_path, [0xFF, 0xFE, 0xFD]).unwrap();
 
         let result = check_file(&file_path);
 

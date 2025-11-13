@@ -218,8 +218,7 @@ fn test_editorconfig_and_exclude_integration() {
     let md_content = fs::read_to_string(temp_dir.path().join("markdown.md")).unwrap();
     assert!(
         md_content.ends_with("  \n"),
-        "markdown.md should preserve trailing spaces due to EditorConfig. Got: {:?}",
-        md_content
+        "markdown.md should preserve trailing spaces due to EditorConfig. Got: {md_content:?}"
     );
     assert_eq!(
         md_content, "# Markdown\nTrailing spaces  \n  \n",
