@@ -3,10 +3,14 @@
 // to basefmt's formatting rules.
 
 use ec4rs::property::{FinalNewline, TrimTrailingWs};
-use std::path::Path;
+use ec4rs::{ConfigFile, Properties, PropertiesSource, Section};
+use std::collections::HashMap;
+use std::io;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 /// Configuration rules for formatting a file
-#[derive(Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct FormatRules {
     /// Whether to ensure the file ends with a newline
     pub ensure_final_newline: bool,
@@ -34,19 +38,137 @@ pub struct FormatRules {
 /// - `unset` → rule disabled
 /// - unset → rule disabled (default)
 pub fn get_format_rules(path: &Path) -> FormatRules {
-    // Resolve symlinks to get the real path
-    let resolved_path = match path.canonicalize() {
-        Ok(p) => p,
-        Err(_) => return FormatRules::default(),
-    };
+    match path.canonicalize() {
+        Ok(resolved) => {
+            let mut cache = EditorConfigCache::new();
+            cache.rules_for(&resolved)
+        }
+        Err(_) => FormatRules::default(),
+    }
+}
 
-    // Get EditorConfig properties for this file
-    let properties = match ec4rs::properties_from_config_of(&resolved_path, None::<&Path>) {
-        Ok(props) => props,
-        Err(_) => return FormatRules::default(),
-    };
+/// Caches parsed EditorConfig files to avoid redundant IO on large projects.
+#[derive(Default)]
+pub struct EditorConfigCache {
+    dir_stacks: HashMap<PathBuf, Arc<Vec<Arc<ParsedConfig>>>>,
+    config_files: HashMap<PathBuf, Option<Arc<ParsedConfig>>>,
+    rules_cache: HashMap<PathBuf, FormatRules>,
+}
 
-    // Parse boolean property helper
+impl EditorConfigCache {
+    /// Creates an empty cache.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Returns formatting rules for the given canonical path, caching repeated lookups.
+    pub fn rules_for(&mut self, canonical_path: &Path) -> FormatRules {
+        if let Some(rules) = self.rules_cache.get(canonical_path) {
+            return rules.clone();
+        }
+
+        let mut properties = Properties::new();
+        if let Some(parent) = canonical_path.parent() {
+            for config in self.stack_for_dir(parent).iter() {
+                config.apply_to(&mut properties, canonical_path);
+            }
+        }
+        let rules = rules_from_properties(&properties);
+        self.rules_cache
+            .insert(canonical_path.to_path_buf(), rules.clone());
+        rules
+    }
+
+    fn stack_for_dir(&mut self, dir: &Path) -> Arc<Vec<Arc<ParsedConfig>>> {
+        if let Some(stack) = self.dir_stacks.get(dir) {
+            return Arc::clone(stack);
+        }
+
+        let mut combined = if let Some(parent) = dir.parent() {
+            self.stack_for_dir(parent).as_ref().clone()
+        } else {
+            Vec::new()
+        };
+
+        if let Some(config) = self.load_config_for_dir(dir) {
+            if config.is_root {
+                combined.clear();
+            }
+            combined.push(config);
+        }
+
+        let stack = Arc::new(combined);
+        self.dir_stacks
+            .insert(dir.to_path_buf(), Arc::clone(&stack));
+        stack
+    }
+
+    fn load_config_for_dir(&mut self, dir: &Path) -> Option<Arc<ParsedConfig>> {
+        if let Some(entry) = self.config_files.get(dir) {
+            return entry.clone();
+        }
+
+        let config_path = dir.join(".editorconfig");
+        let parsed = match ConfigFile::open(&config_path) {
+            Ok(file) => self.parse_config_file(dir, file),
+            Err(ec4rs::ParseError::Io(err)) if err.kind() == io::ErrorKind::NotFound => None,
+            Err(err) => {
+                eprintln!(
+                    "{}: failed to read .editorconfig: {}",
+                    config_path.display(),
+                    err
+                );
+                None
+            }
+        };
+
+        self.config_files.insert(dir.to_path_buf(), parsed.clone());
+        parsed
+    }
+
+    fn parse_config_file(&self, dir: &Path, file: ConfigFile) -> Option<Arc<ParsedConfig>> {
+        let ConfigFile { path, mut reader } = file;
+        let mut sections = Vec::new();
+        while let Some(section_result) = reader.next() {
+            match section_result {
+                Ok(section) => sections.push(section),
+                Err(err) => {
+                    eprintln!(
+                        "{}:{}: failed to parse .editorconfig: {}",
+                        path.display(),
+                        reader.line_no(),
+                        err
+                    );
+                    return None;
+                }
+            }
+        }
+
+        Some(Arc::new(ParsedConfig {
+            dir: dir.to_path_buf(),
+            is_root: reader.is_root,
+            sections: Arc::new(sections),
+        }))
+    }
+}
+
+#[derive(Clone)]
+struct ParsedConfig {
+    dir: PathBuf,
+    is_root: bool,
+    sections: Arc<Vec<Section>>,
+}
+
+impl ParsedConfig {
+    fn apply_to(&self, props: &mut Properties, file_path: &Path) {
+        let rel_path = file_path.strip_prefix(&self.dir).unwrap_or(file_path);
+        for section in self.sections.as_ref() {
+            let _ = section.apply_to(props, rel_path);
+        }
+    }
+}
+
+fn rules_from_properties(properties: &Properties) -> FormatRules {
     let parse_bool_value = |prop: &str| -> bool {
         match prop.to_lowercase().as_str() {
             "true" => true,
@@ -55,21 +177,18 @@ pub fn get_format_rules(path: &Path) -> FormatRules {
         }
     };
 
-    // Get insert_final_newline property
     let ensure_final_newline = properties
         .get::<FinalNewline>()
         .ok()
         .map(|prop| matches!(prop, FinalNewline::Value(true)))
         .unwrap_or(false);
 
-    // Get trim_trailing_whitespace property
     let remove_trailing_spaces = properties
         .get::<TrimTrailingWs>()
         .ok()
         .map(|prop| matches!(prop, TrimTrailingWs::Value(true)))
         .unwrap_or(false);
 
-    // Get custom trim_leading_newlines property
     let remove_leading_newlines = properties
         .get_raw_for_key("trim_leading_newlines")
         .into_option()
@@ -534,9 +653,9 @@ trim_leading_newlines = true
         assert_eq!(
             rules,
             FormatRules {
-                ensure_final_newline: true,         // from parent
-                remove_trailing_spaces: false,      // overridden by child
-                remove_leading_newlines: true,      // from child
+                ensure_final_newline: true,    // from parent
+                remove_trailing_spaces: false, // overridden by child
+                remove_leading_newlines: true, // from child
             },
             "Child .editorconfig should override parent settings while inheriting others"
         );
@@ -579,7 +698,7 @@ trim_trailing_whitespace = false
         assert_eq!(
             rules,
             FormatRules {
-                ensure_final_newline: false,    // NOT inherited
+                ensure_final_newline: false, // NOT inherited
                 remove_trailing_spaces: false,
                 remove_leading_newlines: false,
             },

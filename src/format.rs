@@ -4,7 +4,10 @@ use std::io::{self, Read, Write};
 use std::path::Path;
 use tempfile::NamedTempFile;
 
-fn read_and_format(path: &Path) -> io::Result<(String, String, fs::Metadata)> {
+fn read_and_format_with_rules(
+    path: &Path,
+    rules: &editorconfig::FormatRules,
+) -> io::Result<(String, String, fs::Metadata)> {
     let file = fs::File::open(path)?;
     let metadata = file.metadata()?;
 
@@ -21,8 +24,7 @@ fn read_and_format(path: &Path) -> io::Result<(String, String, fs::Metadata)> {
         }
     })?;
 
-    let rules = editorconfig::get_format_rules(path);
-    let formatted = format_content(&content, &rules);
+    let formatted = format_content(&content, rules);
     Ok((content, formatted, metadata))
 }
 
@@ -57,9 +59,23 @@ fn read_and_format(path: &Path) -> io::Result<(String, String, fs::Metadata)> {
 /// }
 /// ```
 pub fn format_file(path: &Path) -> io::Result<bool> {
-    let (content, formatted, metadata) = read_and_format(path)?;
+    let rules = editorconfig::get_format_rules(path);
+    format_file_with_rules(path, &rules)
+}
 
-    let changed = content != formatted;
+/// Formats a file in place using precomputed formatting rules.
+pub fn format_file_with_rules(path: &Path, rules: &editorconfig::FormatRules) -> io::Result<bool> {
+    let (content, formatted, metadata) = read_and_format_with_rules(path, rules)?;
+    write_formatted_output(path, content, formatted, metadata)
+}
+
+fn write_formatted_output(
+    path: &Path,
+    original: String,
+    formatted: String,
+    metadata: fs::Metadata,
+) -> io::Result<bool> {
+    let changed = original != formatted;
     if changed {
         // Write to a temporary file first, then rename to preserve metadata
         let parent_dir = path.parent().unwrap_or_else(|| Path::new("."));
@@ -68,7 +84,9 @@ pub fn format_file(path: &Path) -> io::Result<bool> {
         temp_file.as_file().sync_all()?;
 
         // Set permissions before persisting
-        temp_file.as_file().set_permissions(metadata.permissions())?;
+        temp_file
+            .as_file()
+            .set_permissions(metadata.permissions())?;
 
         // Atomically replace the original file
         temp_file.persist(path)?;
@@ -102,7 +120,13 @@ pub fn format_file(path: &Path) -> io::Result<bool> {
 /// }
 /// ```
 pub fn check_file(path: &Path) -> io::Result<bool> {
-    let (content, formatted, _metadata) = read_and_format(path)?;
+    let rules = editorconfig::get_format_rules(path);
+    check_file_with_rules(path, &rules)
+}
+
+/// Checks a file using already resolved formatting rules.
+pub fn check_file_with_rules(path: &Path, rules: &editorconfig::FormatRules) -> io::Result<bool> {
+    let (content, formatted, _metadata) = read_and_format_with_rules(path, rules)?;
     Ok(content == formatted)
 }
 

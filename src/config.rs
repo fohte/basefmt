@@ -166,10 +166,7 @@ mod tests {
 
         let config = Config::load(temp_dir.path()).unwrap();
 
-        assert_eq!(
-            config.exclude,
-            vec!["*.min.*", "test/**", "vendor/**"]
-        );
+        assert_eq!(config.exclude, vec!["*.min.*", "test/**", "vendor/**"]);
     }
 
     #[test]
@@ -278,8 +275,16 @@ mod tests {
             cached_matcher: OnceLock::new(),
         };
 
-        assert!(config.is_excluded(Path::new("node_modules/pkg/file.js")).unwrap());
-        assert!(config.is_excluded(Path::new("src/node_modules/pkg/file.js")).unwrap());
+        assert!(
+            config
+                .is_excluded(Path::new("node_modules/pkg/file.js"))
+                .unwrap()
+        );
+        assert!(
+            config
+                .is_excluded(Path::new("src/node_modules/pkg/file.js"))
+                .unwrap()
+        );
         assert!(!config.is_excluded(Path::new("src/file.js")).unwrap());
     }
 

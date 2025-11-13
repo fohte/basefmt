@@ -104,8 +104,7 @@ fn test_format_directory() {
         let actual = fs::read_to_string(temp_dir.path().join(fixture_name)).unwrap();
         let expected = read_expected(fixture_name);
         assert_eq!(
-            actual,
-            expected,
+            actual, expected,
             "File {fixture_name} was not formatted correctly"
         );
     }
@@ -211,8 +210,7 @@ fn test_editorconfig_and_exclude_integration() {
     // Test 1: normal.txt should be formatted (no exclusions apply)
     let normal_content = fs::read_to_string(temp_dir.path().join("normal.txt")).unwrap();
     assert_eq!(
-        normal_content,
-        "normal file with trailing spaces\n",
+        normal_content, "normal file with trailing spaces\n",
         "normal.txt should have been formatted"
     );
 
@@ -224,8 +222,7 @@ fn test_editorconfig_and_exclude_integration() {
         md_content
     );
     assert_eq!(
-        md_content,
-        "# Markdown\nTrailing spaces  \n  \n",
+        md_content, "# Markdown\nTrailing spaces  \n  \n",
         "markdown.md formatting incorrect"
     );
 
@@ -412,8 +409,7 @@ fn test_multiple_exclusion_patterns() {
 
     // Verify that different exclusion mechanisms work independently:
     // 1. EditorConfig pattern-based exclusion (test/fixtures/**)
-    let test_fixture =
-        fs::read_to_string(temp_dir.path().join("test/fixtures/data.txt")).unwrap();
+    let test_fixture = fs::read_to_string(temp_dir.path().join("test/fixtures/data.txt")).unwrap();
     assert!(
         test_fixture.ends_with("  \n\n\n"),
         "test/fixtures/** excluded by EditorConfig"

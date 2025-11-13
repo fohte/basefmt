@@ -1,9 +1,10 @@
 use crate::config::Config;
+use crate::editorconfig::{EditorConfigCache, FormatRules};
 use crate::find::find_files;
-use crate::format::{check_file, format_file};
+use crate::format::{check_file_with_rules, format_file_with_rules};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// Result of a formatting or checking operation.
@@ -34,6 +35,11 @@ impl FormatResult {
     }
 }
 
+struct FileTask {
+    path: PathBuf,
+    rules: FormatRules,
+}
+
 /// Formats files in the specified paths in parallel.
 ///
 /// Finds all files in the given paths and formats them concurrently using rayon.
@@ -58,47 +64,15 @@ impl FormatResult {
 /// println!("Formatted {} files", result.total_files);
 /// ```
 pub fn run_format(paths: &[impl AsRef<Path>]) -> io::Result<FormatResult> {
-    // Determine config directory from the first path
-    let config_dir = if let Some(first_path) = paths.first() {
-        let path = first_path.as_ref();
-        if path.is_dir() {
-            path
-        } else {
-            path.parent().unwrap_or_else(|| Path::new("."))
-        }
-    } else {
-        Path::new(".")
-    };
-
+    let config_dir = determine_config_dir(paths);
     let config = Config::load(config_dir).unwrap_or_default();
     let files = find_files(paths)?;
+    let config_dir_abs = config_dir
+        .canonicalize()
+        .unwrap_or_else(|_| config_dir.to_path_buf());
 
-    // Get absolute path of config_dir for relative path calculation
-    let config_dir_abs = config_dir.canonicalize().unwrap_or_else(|_| config_dir.to_path_buf());
-
-    // Filter out excluded files
-    let mut filtered_files = Vec::new();
-    for file in &files {
-        // Canonicalize file path to ensure consistent path comparison
-        let file_abs = file.canonicalize().unwrap_or_else(|_| file.to_path_buf());
-
-        // Convert to relative path for glob matching
-        let rel_path = file_abs
-            .strip_prefix(&config_dir_abs)
-            .unwrap_or(file.as_path());
-
-        match config.is_excluded(rel_path) {
-            Ok(true) => {
-                // File is excluded, skip it
-            }
-            Ok(false) => {
-                filtered_files.push(file.clone());
-            }
-            Err(err) => {
-                eprintln!("{}: {}", file.display(), err);
-            }
-        }
-    }
+    let mut rule_cache = EditorConfigCache::new();
+    let filtered_files = collect_tasks(files, &config, &config_dir_abs, &mut rule_cache);
 
     let error_count = AtomicUsize::new(0);
 
@@ -106,27 +80,25 @@ pub fn run_format(paths: &[impl AsRef<Path>]) -> io::Result<FormatResult> {
     const PARALLEL_THRESHOLD: usize = 10;
 
     if filtered_files.len() < PARALLEL_THRESHOLD {
-        // Sequential processing for small workloads
-        for file in &filtered_files {
-            match format_file(file) {
+        for task in &filtered_files {
+            match format_file_with_rules(&task.path, &task.rules) {
                 Ok(_changed) => {
                     // Successfully formatted
                 }
                 Err(err) => {
-                    eprintln!("{}: {}", file.display(), err);
+                    eprintln!("{}: {}", task.path.display(), err);
                     error_count.fetch_add(1, Ordering::Relaxed);
                 }
             }
         }
     } else {
-        // Parallel processing for large workloads
-        filtered_files.par_iter().for_each(|file| {
-            match format_file(file) {
+        filtered_files.par_iter().for_each(|task| {
+            match format_file_with_rules(&task.path, &task.rules) {
                 Ok(_changed) => {
                     // Successfully formatted
                 }
                 Err(err) => {
-                    eprintln!("{}: {}", file.display(), err);
+                    eprintln!("{}: {}", task.path.display(), err);
                     error_count.fetch_add(1, Ordering::Relaxed);
                 }
             }
@@ -166,47 +138,15 @@ pub fn run_format(paths: &[impl AsRef<Path>]) -> io::Result<FormatResult> {
 /// }
 /// ```
 pub fn run_check(paths: &[impl AsRef<Path>]) -> io::Result<FormatResult> {
-    // Determine config directory from the first path
-    let config_dir = if let Some(first_path) = paths.first() {
-        let path = first_path.as_ref();
-        if path.is_dir() {
-            path
-        } else {
-            path.parent().unwrap_or_else(|| Path::new("."))
-        }
-    } else {
-        Path::new(".")
-    };
-
+    let config_dir = determine_config_dir(paths);
     let config = Config::load(config_dir).unwrap_or_default();
     let files = find_files(paths)?;
+    let config_dir_abs = config_dir
+        .canonicalize()
+        .unwrap_or_else(|_| config_dir.to_path_buf());
 
-    // Get absolute path of config_dir for relative path calculation
-    let config_dir_abs = config_dir.canonicalize().unwrap_or_else(|_| config_dir.to_path_buf());
-
-    // Filter out excluded files
-    let mut filtered_files = Vec::new();
-    for file in &files {
-        // Canonicalize file path to ensure consistent path comparison
-        let file_abs = file.canonicalize().unwrap_or_else(|_| file.to_path_buf());
-
-        // Convert to relative path for glob matching
-        let rel_path = file_abs
-            .strip_prefix(&config_dir_abs)
-            .unwrap_or(file.as_path());
-
-        match config.is_excluded(rel_path) {
-            Ok(true) => {
-                // File is excluded, skip it
-            }
-            Ok(false) => {
-                filtered_files.push(file.clone());
-            }
-            Err(err) => {
-                eprintln!("{}: {}", file.display(), err);
-            }
-        }
-    }
+    let mut rule_cache = EditorConfigCache::new();
+    let filtered_files = collect_tasks(files, &config, &config_dir_abs, &mut rule_cache);
 
     let error_count = AtomicUsize::new(0);
     let unformatted_count = AtomicUsize::new(0);
@@ -215,33 +155,31 @@ pub fn run_check(paths: &[impl AsRef<Path>]) -> io::Result<FormatResult> {
     const PARALLEL_THRESHOLD: usize = 10;
 
     if filtered_files.len() < PARALLEL_THRESHOLD {
-        // Sequential processing for small workloads
-        for file in &filtered_files {
-            match check_file(file) {
+        for task in &filtered_files {
+            match check_file_with_rules(&task.path, &task.rules) {
                 Ok(is_clean) => {
                     if !is_clean {
-                        eprintln!("{}: not formatted", file.display());
+                        eprintln!("{}: not formatted", task.path.display());
                         unformatted_count.fetch_add(1, Ordering::Relaxed);
                     }
                 }
                 Err(err) => {
-                    eprintln!("{}: {}", file.display(), err);
+                    eprintln!("{}: {}", task.path.display(), err);
                     error_count.fetch_add(1, Ordering::Relaxed);
                 }
             }
         }
     } else {
-        // Parallel processing for large workloads
-        filtered_files.par_iter().for_each(|file| {
-            match check_file(file) {
+        filtered_files.par_iter().for_each(|task| {
+            match check_file_with_rules(&task.path, &task.rules) {
                 Ok(is_clean) => {
                     if !is_clean {
-                        eprintln!("{}: not formatted", file.display());
+                        eprintln!("{}: not formatted", task.path.display());
                         unformatted_count.fetch_add(1, Ordering::Relaxed);
                     }
                 }
                 Err(err) => {
-                    eprintln!("{}: {}", file.display(), err);
+                    eprintln!("{}: {}", task.path.display(), err);
                     error_count.fetch_add(1, Ordering::Relaxed);
                 }
             }
@@ -253,6 +191,57 @@ pub fn run_check(paths: &[impl AsRef<Path>]) -> io::Result<FormatResult> {
         error_count: error_count.load(Ordering::Relaxed),
         unformatted_count: unformatted_count.load(Ordering::Relaxed),
     })
+}
+
+fn determine_config_dir(paths: &[impl AsRef<Path>]) -> &Path {
+    if let Some(first_path) = paths.first() {
+        let path = first_path.as_ref();
+        if path.is_dir() {
+            path
+        } else {
+            path.parent().unwrap_or_else(|| Path::new("."))
+        }
+    } else {
+        Path::new(".")
+    }
+}
+
+fn collect_tasks(
+    files: Vec<PathBuf>,
+    config: &Config,
+    config_dir_abs: &Path,
+    rule_cache: &mut EditorConfigCache,
+) -> Vec<FileTask> {
+    let mut tasks = Vec::with_capacity(files.len());
+    for path in files {
+        let canonical = match path.canonicalize() {
+            Ok(abs) => abs,
+            Err(err) => {
+                eprintln!("{}: {}", path.display(), err);
+                path.clone()
+            }
+        };
+
+        let rel_path = canonical
+            .strip_prefix(config_dir_abs)
+            .unwrap_or(canonical.as_path());
+
+        let is_excluded = match config.is_excluded(rel_path) {
+            Ok(result) => result,
+            Err(err) => {
+                eprintln!("{}: {}", path.display(), err);
+                continue;
+            }
+        };
+
+        if is_excluded {
+            continue;
+        }
+
+        let rules = rule_cache.rules_for(&canonical);
+        tasks.push(FileTask { path, rules });
+    }
+    tasks
 }
 
 #[cfg(test)]
