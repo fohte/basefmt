@@ -66,7 +66,7 @@ impl EditorConfigCache {
     /// # Arguments
     ///
     /// * `canonical_path` - A canonicalized (absolute) path to the file.
-    ///                      Must be obtained via `Path::canonicalize()`.
+    ///   Must be obtained via `Path::canonicalize()`.
     pub fn rules_for(&mut self, canonical_path: &Path) -> FormatRules {
         if let Some(rules) = self.rules_cache.get(canonical_path) {
             return rules.clone();
