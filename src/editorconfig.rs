@@ -210,23 +210,50 @@ fn rules_from_properties(properties: &Properties) -> FormatRules {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rstest::rstest;
     use std::fs;
+    use std::path::{Path, PathBuf};
     use tempfile::TempDir;
 
-    /// Helper to create a temporary .editorconfig file
-    fn create_editorconfig(temp_dir: &TempDir, content: &str) -> std::path::PathBuf {
-        let config_path = temp_dir.path().join(".editorconfig");
-        fs::write(&config_path, content).unwrap();
-        config_path
+    struct TestWorkspace {
+        temp_dir: TempDir,
     }
 
-    #[test]
-    fn test_basic_properties_true() {
-        // Given: an EditorConfig file with all properties set to true
-        let temp_dir = TempDir::new().unwrap();
-        create_editorconfig(
-            &temp_dir,
-            r#"
+    impl TestWorkspace {
+        fn new() -> Self {
+            Self {
+                temp_dir: TempDir::new().unwrap(),
+            }
+        }
+
+        fn join(&self, rel: impl AsRef<Path>) -> PathBuf {
+            self.temp_dir.path().join(rel)
+        }
+
+        fn write_editorconfig(&self, rel_dir: impl AsRef<Path>, content: &str) {
+            let dir_path = self.join(rel_dir);
+            fs::create_dir_all(&dir_path).unwrap();
+            fs::write(dir_path.join(".editorconfig"), content).unwrap();
+        }
+
+        fn write_file(&self, rel_path: impl AsRef<Path>, content: &str) -> PathBuf {
+            let file_path = self.join(rel_path);
+            if let Some(parent) = file_path.parent() {
+                fs::create_dir_all(parent).unwrap();
+            }
+            fs::write(&file_path, content).unwrap();
+            file_path
+        }
+
+        fn rules(&self, rel_path: impl AsRef<Path>) -> FormatRules {
+            let file_path = self.join(rel_path);
+            get_format_rules(&file_path)
+        }
+    }
+
+    #[rstest]
+    #[case::all_true(
+        r#"
 root = true
 
 [*]
@@ -234,32 +261,14 @@ insert_final_newline = true
 trim_trailing_whitespace = true
 trim_leading_newlines = true
 "#,
-        );
-
-        let test_file = temp_dir.path().join("test.txt");
-        fs::write(&test_file, "test").unwrap();
-
-        // When: getting format rules for the file
-        let rules = get_format_rules(&test_file);
-
-        // Then: all rules should be enabled
-        assert_eq!(
-            rules,
-            FormatRules {
-                ensure_final_newline: true,
-                remove_trailing_spaces: true,
-                remove_leading_newlines: true,
-            }
-        );
-    }
-
-    #[test]
-    fn test_properties_explicitly_false() {
-        // Given: an EditorConfig file with properties set to false
-        let temp_dir = TempDir::new().unwrap();
-        create_editorconfig(
-            &temp_dir,
-            r#"
+        FormatRules {
+            ensure_final_newline: true,
+            remove_trailing_spaces: true,
+            remove_leading_newlines: true,
+        }
+    )]
+    #[case::all_false(
+        r#"
 root = true
 
 [*]
@@ -267,32 +276,14 @@ insert_final_newline = false
 trim_trailing_whitespace = false
 trim_leading_newlines = false
 "#,
-        );
-
-        let test_file = temp_dir.path().join("test.txt");
-        fs::write(&test_file, "test").unwrap();
-
-        // When: getting format rules for the file
-        let rules = get_format_rules(&test_file);
-
-        // Then: all rules should be disabled
-        assert_eq!(
-            rules,
-            FormatRules {
-                ensure_final_newline: false,
-                remove_trailing_spaces: false,
-                remove_leading_newlines: false,
-            }
-        );
-    }
-
-    #[test]
-    fn test_properties_unset() {
-        // Given: an EditorConfig file with properties explicitly set to "unset"
-        let temp_dir = TempDir::new().unwrap();
-        create_editorconfig(
-            &temp_dir,
-            r#"
+        FormatRules {
+            ensure_final_newline: false,
+            remove_trailing_spaces: false,
+            remove_leading_newlines: false,
+        }
+    )]
+    #[case::unset(
+        r#"
 root = true
 
 [*]
@@ -300,63 +291,55 @@ insert_final_newline = unset
 trim_trailing_whitespace = unset
 trim_leading_newlines = unset
 "#,
-        );
-
-        let test_file = temp_dir.path().join("test.txt");
-        fs::write(&test_file, "test").unwrap();
-
-        // When: getting format rules for the file
-        let rules = get_format_rules(&test_file);
-
-        // Then: all rules should be disabled (unset means disabled)
-        assert_eq!(
-            rules,
-            FormatRules {
-                ensure_final_newline: false,
-                remove_trailing_spaces: false,
-                remove_leading_newlines: false,
-            }
-        );
-    }
-
-    #[test]
-    fn test_properties_not_set() {
-        // Given: an EditorConfig file without our properties
-        let temp_dir = TempDir::new().unwrap();
-        create_editorconfig(
-            &temp_dir,
-            r#"
+        FormatRules {
+            ensure_final_newline: false,
+            remove_trailing_spaces: false,
+            remove_leading_newlines: false,
+        }
+    )]
+    #[case::not_present(
+        r#"
 root = true
 
 [*]
 charset = utf-8
 indent_style = space
 "#,
-        );
+        FormatRules {
+            ensure_final_newline: false,
+            remove_trailing_spaces: false,
+            remove_leading_newlines: false,
+        }
+    )]
+    #[case::mixed(
+        r#"
+root = true
 
-        let test_file = temp_dir.path().join("test.txt");
-        fs::write(&test_file, "test").unwrap();
+[*]
+insert_final_newline = true
+trim_trailing_whitespace = false
+trim_leading_newlines = true
+"#,
+        FormatRules {
+            ensure_final_newline: true,
+            remove_trailing_spaces: false,
+            remove_leading_newlines: true,
+        }
+    )]
+    fn test_property_matrix(#[case] config: &str, #[case] expected: FormatRules) {
+        let workspace = TestWorkspace::new();
+        workspace.write_editorconfig(".", config);
+        workspace.write_file("test.txt", "test");
 
-        // When: getting format rules for the file
-        let rules = get_format_rules(&test_file);
-
-        // Then: all rules should be disabled (default)
-        assert_eq!(
-            rules,
-            FormatRules {
-                ensure_final_newline: false,
-                remove_trailing_spaces: false,
-                remove_leading_newlines: false,
-            }
-        );
+        let rules = workspace.rules("test.txt");
+        assert_eq!(rules, expected);
     }
 
     #[test]
     fn test_section_override() {
-        // Given: an EditorConfig file with multiple sections that override each other
-        let temp_dir = TempDir::new().unwrap();
-        create_editorconfig(
-            &temp_dir,
+        let workspace = TestWorkspace::new();
+        workspace.write_editorconfig(
+            ".",
             r#"
 root = true
 
@@ -370,27 +353,19 @@ trim_trailing_whitespace = false
 "#,
         );
 
-        // When: getting format rules for a Markdown file
-        let md_file = temp_dir.path().join("test.md");
-        fs::write(&md_file, "test").unwrap();
-        let md_rules = get_format_rules(&md_file);
-
-        // Then: trim_trailing_whitespace should be disabled for .md files
+        workspace.write_file("test.md", "test");
+        let md_rules = workspace.rules("test.md");
         assert_eq!(
             md_rules,
             FormatRules {
                 ensure_final_newline: true,
-                remove_trailing_spaces: false, // overridden
+                remove_trailing_spaces: false,
                 remove_leading_newlines: true,
             }
         );
 
-        // When: getting format rules for a non-Markdown file
-        let txt_file = temp_dir.path().join("test.txt");
-        fs::write(&txt_file, "test").unwrap();
-        let txt_rules = get_format_rules(&txt_file);
-
-        // Then: all rules should remain enabled
+        workspace.write_file("test.txt", "test");
+        let txt_rules = workspace.rules("test.txt");
         assert_eq!(
             txt_rules,
             FormatRules {
@@ -403,10 +378,9 @@ trim_trailing_whitespace = false
 
     #[test]
     fn test_custom_property_trim_leading_newlines() {
-        // Given: an EditorConfig file with our custom property
-        let temp_dir = TempDir::new().unwrap();
-        create_editorconfig(
-            &temp_dir,
+        let workspace = TestWorkspace::new();
+        workspace.write_editorconfig(
+            ".",
             r#"
 root = true
 
@@ -417,22 +391,16 @@ trim_leading_newlines = true
 "#,
         );
 
-        let test_file = temp_dir.path().join("test.txt");
-        fs::write(&test_file, "test").unwrap();
-
-        // When: getting format rules
-        let rules = get_format_rules(&test_file);
-
-        // Then: the custom property should be respected
+        workspace.write_file("test.txt", "test");
+        let rules = workspace.rules("test.txt");
         assert!(rules.remove_leading_newlines);
     }
 
     #[test]
     fn test_directory_pattern_matching() {
-        // Given: an EditorConfig file with directory-specific rules
-        let temp_dir = TempDir::new().unwrap();
-        create_editorconfig(
-            &temp_dir,
+        let workspace = TestWorkspace::new();
+        workspace.write_editorconfig(
+            ".",
             r#"
 root = true
 
@@ -445,29 +413,19 @@ trim_trailing_whitespace = false
 "#,
         );
 
-        // When: getting format rules for a file in test/ directory
-        let test_dir = temp_dir.path().join("test");
-        fs::create_dir(&test_dir).unwrap();
-        let test_file = test_dir.join("example.txt");
-        fs::write(&test_file, "test").unwrap();
-        let test_rules = get_format_rules(&test_file);
-
-        // Then: the directory-specific rule should apply
+        workspace.write_file("test/example.txt", "test");
+        let test_rules = workspace.rules("test/example.txt");
         assert_eq!(
             test_rules,
             FormatRules {
                 ensure_final_newline: true,
-                remove_trailing_spaces: false, // overridden for test/**
+                remove_trailing_spaces: false,
                 remove_leading_newlines: false,
             }
         );
 
-        // When: getting format rules for a file outside test/ directory
-        let root_file = temp_dir.path().join("root.txt");
-        fs::write(&root_file, "test").unwrap();
-        let root_rules = get_format_rules(&root_file);
-
-        // Then: the default rules should apply
+        workspace.write_file("root.txt", "test");
+        let root_rules = workspace.rules("root.txt");
         assert_eq!(
             root_rules,
             FormatRules {
@@ -479,49 +437,10 @@ trim_trailing_whitespace = false
     }
 
     #[test]
-    fn test_mixed_values() {
-        // Given: an EditorConfig file with a mix of true/false values
-        let temp_dir = TempDir::new().unwrap();
-        create_editorconfig(
-            &temp_dir,
-            r#"
-root = true
-
-[*]
-insert_final_newline = true
-trim_trailing_whitespace = false
-trim_leading_newlines = true
-"#,
-        );
-
-        let test_file = temp_dir.path().join("test.txt");
-        fs::write(&test_file, "test").unwrap();
-
-        // When: getting format rules
-        let rules = get_format_rules(&test_file);
-
-        // Then: rules should match the specified values
-        assert_eq!(
-            rules,
-            FormatRules {
-                ensure_final_newline: true,
-                remove_trailing_spaces: false,
-                remove_leading_newlines: true,
-            }
-        );
-    }
-
-    #[test]
     fn test_no_editorconfig_file() {
-        // Given: a directory without .editorconfig file
-        let temp_dir = TempDir::new().unwrap();
-        let test_file = temp_dir.path().join("test.txt");
-        fs::write(&test_file, "test").unwrap();
-
-        // When: getting format rules
-        let rules = get_format_rules(&test_file);
-
-        // Then: all rules should be disabled (default)
+        let workspace = TestWorkspace::new();
+        workspace.write_file("test.txt", "test");
+        let rules = workspace.rules("test.txt");
         assert_eq!(
             rules,
             FormatRules {
@@ -534,10 +453,9 @@ trim_leading_newlines = true
 
     #[test]
     fn test_extension_pattern_matching() {
-        // Given: an EditorConfig file with extension-specific rules
-        let temp_dir = TempDir::new().unwrap();
-        create_editorconfig(
-            &temp_dir,
+        let workspace = TestWorkspace::new();
+        workspace.write_editorconfig(
+            ".",
             r#"
 root = true
 
@@ -553,12 +471,8 @@ trim_trailing_whitespace = true
 "#,
         );
 
-        // When: getting format rules for .md file
-        let md_file = temp_dir.path().join("README.md");
-        fs::write(&md_file, "test").unwrap();
-        let md_rules = get_format_rules(&md_file);
-
-        // Then: .md specific rules should apply
+        workspace.write_file("README.md", "test");
+        let md_rules = workspace.rules("README.md");
         assert_eq!(
             md_rules,
             FormatRules {
@@ -568,12 +482,8 @@ trim_trailing_whitespace = true
             }
         );
 
-        // When: getting format rules for .txt file
-        let txt_file = temp_dir.path().join("test.txt");
-        fs::write(&txt_file, "test").unwrap();
-        let txt_rules = get_format_rules(&txt_file);
-
-        // Then: .txt specific rules should apply
+        workspace.write_file("test.txt", "test");
+        let txt_rules = workspace.rules("test.txt");
         assert_eq!(
             txt_rules,
             FormatRules {
@@ -586,10 +496,9 @@ trim_trailing_whitespace = true
 
     #[test]
     fn test_parent_directory_lookup() {
-        // Given: .editorconfig in parent, file in subdirectory
-        let temp_dir = TempDir::new().unwrap();
-        create_editorconfig(
-            &temp_dir,
+        let workspace = TestWorkspace::new();
+        workspace.write_editorconfig(
+            ".",
             r#"
 root = true
 
@@ -599,15 +508,8 @@ trim_trailing_whitespace = true
 "#,
         );
 
-        let sub_dir = temp_dir.path().join("subdir");
-        fs::create_dir(&sub_dir).unwrap();
-        let test_file = sub_dir.join("test.txt");
-        fs::write(&test_file, "test").unwrap();
-
-        // When: getting format rules for the file in subdirectory
-        let rules = get_format_rules(&test_file);
-
-        // Then: should inherit settings from parent directory
+        workspace.write_file("subdir/test.txt", "test");
+        let rules = workspace.rules("subdir/test.txt");
         assert_eq!(
             rules,
             FormatRules {
@@ -621,10 +523,9 @@ trim_trailing_whitespace = true
 
     #[test]
     fn test_hierarchical_config_merging() {
-        // Given: .editorconfig in both parent and child directories
-        let temp_dir = TempDir::new().unwrap();
-        create_editorconfig(
-            &temp_dir,
+        let workspace = TestWorkspace::new();
+        workspace.write_editorconfig(
+            ".",
             r#"
 root = true
 
@@ -634,33 +535,23 @@ trim_trailing_whitespace = true
 "#,
         );
 
-        let sub_dir = temp_dir.path().join("subdir");
-        fs::create_dir(&sub_dir).unwrap();
-        let child_config = sub_dir.join(".editorconfig");
-        fs::write(
-            &child_config,
+        workspace.write_editorconfig(
+            "subdir",
             r#"
 [*]
 trim_trailing_whitespace = false
 trim_leading_newlines = true
 "#,
-        )
-        .unwrap();
+        );
 
-        let test_file = sub_dir.join("test.txt");
-        fs::write(&test_file, "test").unwrap();
-
-        // When: getting format rules
-        let rules = get_format_rules(&test_file);
-
-        // Then: child should override parent's trim_trailing_whitespace
-        // but inherit insert_final_newline
+        workspace.write_file("subdir/test.txt", "test");
+        let rules = workspace.rules("subdir/test.txt");
         assert_eq!(
             rules,
             FormatRules {
-                ensure_final_newline: true,    // from parent
-                remove_trailing_spaces: false, // overridden by child
-                remove_leading_newlines: true, // from child
+                ensure_final_newline: true,
+                remove_trailing_spaces: false,
+                remove_leading_newlines: true,
             },
             "Child .editorconfig should override parent settings while inheriting others"
         );
@@ -668,10 +559,9 @@ trim_leading_newlines = true
 
     #[test]
     fn test_root_directive_stops_search() {
-        // Given: two .editorconfig files, child has root=true
-        let temp_dir = TempDir::new().unwrap();
-        create_editorconfig(
-            &temp_dir,
+        let workspace = TestWorkspace::new();
+        workspace.write_editorconfig(
+            ".",
             r#"
 [*]
 insert_final_newline = true
@@ -679,31 +569,22 @@ trim_trailing_whitespace = true
 "#,
         );
 
-        let sub_dir = temp_dir.path().join("subdir");
-        fs::create_dir(&sub_dir).unwrap();
-        let child_config = sub_dir.join(".editorconfig");
-        fs::write(
-            &child_config,
+        workspace.write_editorconfig(
+            "subdir",
             r#"
 root = true
 
 [*]
 trim_trailing_whitespace = false
 "#,
-        )
-        .unwrap();
+        );
 
-        let test_file = sub_dir.join("test.txt");
-        fs::write(&test_file, "test").unwrap();
-
-        // When: getting format rules
-        let rules = get_format_rules(&test_file);
-
-        // Then: should NOT inherit from parent due to root=true in child
+        workspace.write_file("subdir/test.txt", "test");
+        let rules = workspace.rules("subdir/test.txt");
         assert_eq!(
             rules,
             FormatRules {
-                ensure_final_newline: false, // NOT inherited
+                ensure_final_newline: false,
                 remove_trailing_spaces: false,
                 remove_leading_newlines: false,
             },
@@ -713,44 +594,33 @@ trim_trailing_whitespace = false
 
     #[test]
     fn test_root_false_allows_parent_lookup() {
-        // Given: parent config without root=true and child config with root=false explicitly set
-        let temp_dir = TempDir::new().unwrap();
-        let parent_config = temp_dir.path().join(".editorconfig");
-        fs::write(
-            &parent_config,
+        let workspace = TestWorkspace::new();
+        workspace.write_editorconfig(
+            ".",
             r#"
 
 [*]
 insert_final_newline = true
 "#,
-        )
-        .unwrap();
+        );
 
-        let child_dir = temp_dir.path().join("child");
-        fs::create_dir(&child_dir).unwrap();
-        fs::write(
-            child_dir.join(".editorconfig"),
+        workspace.write_editorconfig(
+            "child",
             r#"
 root = false
 
 [*]
 trim_trailing_whitespace = true
 "#,
-        )
-        .unwrap();
+        );
 
-        let test_file = child_dir.join("test.txt");
-        fs::write(&test_file, "test").unwrap();
-
-        // When: resolving rules for the child file
-        let rules = get_format_rules(&test_file);
-
-        // Then: settings should merge across both configs because root=false must not stop traversal
+        workspace.write_file("child/test.txt", "test");
+        let rules = workspace.rules("child/test.txt");
         assert_eq!(
             rules,
             FormatRules {
-                ensure_final_newline: true,   // inherited from parent
-                remove_trailing_spaces: true, // from child
+                ensure_final_newline: true,
+                remove_trailing_spaces: true,
                 remove_leading_newlines: false,
             }
         );
@@ -758,40 +628,27 @@ trim_trailing_whitespace = true
 
     #[test]
     fn test_missing_root_directive_still_merges_ancestors() {
-        // Given: two ancestor .editorconfig files that never declare root=true
-        let temp_dir = TempDir::new().unwrap();
-        let top_config = temp_dir.path().join(".editorconfig");
-        fs::write(
-            &top_config,
+        let workspace = TestWorkspace::new();
+        workspace.write_editorconfig(
+            ".",
             r#"
 
 [*]
 insert_final_newline = true
 "#,
-        )
-        .unwrap();
+        );
 
-        let mid_dir = temp_dir.path().join("mid");
-        fs::create_dir(&mid_dir).unwrap();
-        fs::write(
-            mid_dir.join(".editorconfig"),
+        workspace.write_editorconfig(
+            "mid",
             r#"
 
 [*]
 trim_trailing_whitespace = true
 "#,
-        )
-        .unwrap();
+        );
 
-        let leaf_dir = mid_dir.join("leaf");
-        fs::create_dir(&leaf_dir).unwrap();
-        let test_file = leaf_dir.join("test.txt");
-        fs::write(&test_file, "test").unwrap();
-
-        // When: gathering rules for the leaf file
-        let rules = get_format_rules(&test_file);
-
-        // Then: both ancestor configs should be applied because traversal reaches filesystem root
+        workspace.write_file("mid/leaf/test.txt", "test");
+        let rules = workspace.rules("mid/leaf/test.txt");
         assert_eq!(
             rules,
             FormatRules {
@@ -804,10 +661,9 @@ trim_trailing_whitespace = true
 
     #[test]
     fn test_glob_pattern_brace_expansion() {
-        // Given: braces pattern like {js,ts}
-        let temp_dir = TempDir::new().unwrap();
-        create_editorconfig(
-            &temp_dir,
+        let workspace = TestWorkspace::new();
+        workspace.write_editorconfig(
+            ".",
             r#"
 root = true
 
@@ -817,30 +673,24 @@ trim_trailing_whitespace = true
 "#,
         );
 
-        // Test .js file
-        let js_file = temp_dir.path().join("test.js");
-        fs::write(&js_file, "test").unwrap();
-        let js_rules = get_format_rules(&js_file);
+        workspace.write_file("test.js", "test");
+        let js_rules = workspace.rules("test.js");
         assert!(
             js_rules.ensure_final_newline,
             "*.{{js,ts}} pattern should match .js files"
         );
         assert!(js_rules.remove_trailing_spaces);
 
-        // Test .ts file
-        let ts_file = temp_dir.path().join("test.ts");
-        fs::write(&ts_file, "test").unwrap();
-        let ts_rules = get_format_rules(&ts_file);
+        workspace.write_file("test.ts", "test");
+        let ts_rules = workspace.rules("test.ts");
         assert!(
             ts_rules.ensure_final_newline,
             "*.{{js,ts}} pattern should match .ts files"
         );
         assert!(ts_rules.remove_trailing_spaces);
 
-        // Test .txt file (should not match)
-        let txt_file = temp_dir.path().join("test.txt");
-        fs::write(&txt_file, "test").unwrap();
-        let txt_rules = get_format_rules(&txt_file);
+        workspace.write_file("test.txt", "test");
+        let txt_rules = workspace.rules("test.txt");
         assert!(
             !txt_rules.ensure_final_newline,
             "*.{{js,ts}} pattern should NOT match .txt files"
@@ -849,10 +699,9 @@ trim_trailing_whitespace = true
 
     #[test]
     fn test_glob_pattern_character_range() {
-        // Given: character range pattern
-        let temp_dir = TempDir::new().unwrap();
-        create_editorconfig(
-            &temp_dir,
+        let workspace = TestWorkspace::new();
+        workspace.write_editorconfig(
+            ".",
             r#"
 root = true
 
@@ -861,27 +710,24 @@ insert_final_newline = true
 "#,
         );
 
-        let file1 = temp_dir.path().join("file5.txt");
-        fs::write(&file1, "test").unwrap();
+        workspace.write_file("file5.txt", "test");
         assert!(
-            get_format_rules(&file1).ensure_final_newline,
+            workspace.rules("file5.txt").ensure_final_newline,
             "file[0-9].txt pattern should match file5.txt"
         );
 
-        let file2 = temp_dir.path().join("fileA.txt");
-        fs::write(&file2, "test").unwrap();
+        workspace.write_file("fileA.txt", "test");
         assert!(
-            !get_format_rules(&file2).ensure_final_newline,
+            !workspace.rules("fileA.txt").ensure_final_newline,
             "file[0-9].txt pattern should NOT match fileA.txt"
         );
     }
 
     #[test]
     fn test_glob_pattern_double_asterisk() {
-        // Given: ** pattern for nested directories
-        let temp_dir = TempDir::new().unwrap();
-        create_editorconfig(
-            &temp_dir,
+        let workspace = TestWorkspace::new();
+        workspace.write_editorconfig(
+            ".",
             r#"
 root = true
 
@@ -890,12 +736,8 @@ insert_final_newline = true
 "#,
         );
 
-        let nested_dir = temp_dir.path().join("foo/bar/test");
-        fs::create_dir_all(&nested_dir).unwrap();
-        let nested_file = nested_dir.join("example.txt");
-        fs::write(&nested_file, "test").unwrap();
-
-        let rules = get_format_rules(&nested_file);
+        workspace.write_file("foo/bar/test/example.txt", "test");
+        let rules = workspace.rules("foo/bar/test/example.txt");
         assert!(
             rules.ensure_final_newline,
             "**/test/*.txt pattern should match files in deeply nested test directories"
@@ -904,10 +746,9 @@ insert_final_newline = true
 
     #[test]
     fn test_invalid_boolean_value() {
-        // Given: invalid boolean value in config
-        let temp_dir = TempDir::new().unwrap();
-        create_editorconfig(
-            &temp_dir,
+        let workspace = TestWorkspace::new();
+        workspace.write_editorconfig(
+            ".",
             r#"
 root = true
 
@@ -916,13 +757,8 @@ insert_final_newline = invalid_value
 "#,
         );
 
-        let test_file = temp_dir.path().join("test.txt");
-        fs::write(&test_file, "test").unwrap();
-
-        // When: getting format rules
-        let rules = get_format_rules(&test_file);
-
-        // Then: should treat as false/disabled (graceful handling)
+        workspace.write_file("test.txt", "test");
+        let rules = workspace.rules("test.txt");
         assert_eq!(
             rules,
             FormatRules::default(),
@@ -932,18 +768,12 @@ insert_final_newline = invalid_value
 
     #[test]
     fn test_malformed_editorconfig() {
-        // Given: syntactically invalid .editorconfig
-        let temp_dir = TempDir::new().unwrap();
-        let config_path = temp_dir.path().join(".editorconfig");
+        let workspace = TestWorkspace::new();
+        let config_path = workspace.join(".editorconfig");
         fs::write(&config_path, "this is not valid INI format [[[").unwrap();
 
-        let test_file = temp_dir.path().join("test.txt");
-        fs::write(&test_file, "test").unwrap();
-
-        // When: getting format rules
-        let rules = get_format_rules(&test_file);
-
-        // Then: should return default rules without panicking
+        workspace.write_file("test.txt", "test");
+        let rules = workspace.rules("test.txt");
         assert_eq!(
             rules,
             FormatRules::default(),
@@ -956,10 +786,9 @@ insert_final_newline = invalid_value
     fn test_symlink_handling() {
         use std::os::unix::fs as unix_fs;
 
-        // Given: file accessed through symlink
-        let temp_dir = TempDir::new().unwrap();
-        create_editorconfig(
-            &temp_dir,
+        let workspace = TestWorkspace::new();
+        workspace.write_editorconfig(
+            ".",
             r#"
 root = true
 
@@ -968,16 +797,11 @@ insert_final_newline = true
 "#,
         );
 
-        let real_file = temp_dir.path().join("real.txt");
-        fs::write(&real_file, "test").unwrap();
-
-        let link_file = temp_dir.path().join("link.txt");
+        let real_file = workspace.write_file("real.txt", "test");
+        let link_file = workspace.join("link.txt");
         unix_fs::symlink(&real_file, &link_file).unwrap();
 
-        // When: getting format rules via symlink
         let rules = get_format_rules(&link_file);
-
-        // Then: should resolve symlink and find .editorconfig
         assert!(
             rules.ensure_final_newline,
             "Symlinks should be resolved to find .editorconfig"
