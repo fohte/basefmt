@@ -215,6 +215,131 @@ mod tests {
     use std::path::{Path, PathBuf};
     use tempfile::TempDir;
 
+    mod configs {
+        pub const ALL_TRUE: &str = r#"
+root = true
+
+[*]
+insert_final_newline = true
+trim_trailing_whitespace = true
+trim_leading_newlines = true
+"#;
+
+        pub const ALL_FALSE: &str = r#"
+root = true
+
+[*]
+insert_final_newline = false
+trim_trailing_whitespace = false
+trim_leading_newlines = false
+"#;
+
+        pub const UNSET: &str = r#"
+root = true
+
+[*]
+insert_final_newline = unset
+trim_trailing_whitespace = unset
+trim_leading_newlines = unset
+"#;
+
+        pub const NOT_PRESENT: &str = r#"
+root = true
+
+[*]
+charset = utf-8
+indent_style = space
+"#;
+
+        pub const MIXED: &str = r#"
+root = true
+
+[*]
+insert_final_newline = true
+trim_trailing_whitespace = false
+trim_leading_newlines = true
+"#;
+
+        pub const SECTION_OVERRIDE: &str = r#"
+root = true
+
+[*]
+insert_final_newline = true
+trim_trailing_whitespace = true
+trim_leading_newlines = true
+
+[*.md]
+trim_trailing_whitespace = false
+"#;
+
+        pub const DIRECTORY_RULES: &str = r#"
+root = true
+
+[*]
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[test/**]
+trim_trailing_whitespace = false
+"#;
+
+        pub const EXTENSION_RULES: &str = r#"
+root = true
+
+[*]
+insert_final_newline = true
+
+[*.md]
+insert_final_newline = false
+trim_trailing_whitespace = false
+
+[*.txt]
+trim_trailing_whitespace = true
+"#;
+
+        pub const PARENT_ROOT_TRUE: &str = r#"
+root = true
+
+[*]
+insert_final_newline = true
+trim_trailing_whitespace = true
+"#;
+
+        pub const NO_ROOT_INSERT_FINAL: &str = r#"
+
+[*]
+insert_final_newline = true
+"#;
+
+        pub const CHILD_OVERRIDE: &str = r#"
+[*]
+trim_trailing_whitespace = false
+trim_leading_newlines = true
+"#;
+
+        pub const CHILD_ROOT_STOP: &str = r#"
+root = true
+
+[*]
+trim_trailing_whitespace = false
+"#;
+
+        pub const CHILD_ROOT_FALSE_TRIM: &str = r#"
+root = false
+
+[*]
+trim_trailing_whitespace = true
+"#;
+
+        pub const MID_NO_ROOT_TRIM: &str = r#"
+
+[*]
+trim_trailing_whitespace = true
+"#;
+    }
+
+    use configs::*;
+
     struct TestWorkspace {
         temp_dir: TempDir,
     }
@@ -253,14 +378,7 @@ mod tests {
 
     #[rstest]
     #[case::all_true(
-        r#"
-root = true
-
-[*]
-insert_final_newline = true
-trim_trailing_whitespace = true
-trim_leading_newlines = true
-"#,
+        ALL_TRUE,
         FormatRules {
             ensure_final_newline: true,
             remove_trailing_spaces: true,
@@ -268,14 +386,7 @@ trim_leading_newlines = true
         }
     )]
     #[case::all_false(
-        r#"
-root = true
-
-[*]
-insert_final_newline = false
-trim_trailing_whitespace = false
-trim_leading_newlines = false
-"#,
+        ALL_FALSE,
         FormatRules {
             ensure_final_newline: false,
             remove_trailing_spaces: false,
@@ -283,14 +394,7 @@ trim_leading_newlines = false
         }
     )]
     #[case::unset(
-        r#"
-root = true
-
-[*]
-insert_final_newline = unset
-trim_trailing_whitespace = unset
-trim_leading_newlines = unset
-"#,
+        UNSET,
         FormatRules {
             ensure_final_newline: false,
             remove_trailing_spaces: false,
@@ -298,13 +402,7 @@ trim_leading_newlines = unset
         }
     )]
     #[case::not_present(
-        r#"
-root = true
-
-[*]
-charset = utf-8
-indent_style = space
-"#,
+        NOT_PRESENT,
         FormatRules {
             ensure_final_newline: false,
             remove_trailing_spaces: false,
@@ -312,14 +410,7 @@ indent_style = space
         }
     )]
     #[case::mixed(
-        r#"
-root = true
-
-[*]
-insert_final_newline = true
-trim_trailing_whitespace = false
-trim_leading_newlines = true
-"#,
+        MIXED,
         FormatRules {
             ensure_final_newline: true,
             remove_trailing_spaces: false,
@@ -335,105 +426,72 @@ trim_leading_newlines = true
         assert_eq!(rules, expected);
     }
 
-    #[test]
-    fn test_section_override() {
+    #[rstest]
+    #[case::section_markdown(
+        SECTION_OVERRIDE,
+        "test.md",
+        FormatRules {
+            ensure_final_newline: true,
+            remove_trailing_spaces: false,
+            remove_leading_newlines: true,
+        }
+    )]
+    #[case::section_txt(
+        SECTION_OVERRIDE,
+        "test.txt",
+        FormatRules {
+            ensure_final_newline: true,
+            remove_trailing_spaces: true,
+            remove_leading_newlines: true,
+        }
+    )]
+    #[case::dir_match(
+        DIRECTORY_RULES,
+        "test/example.txt",
+        FormatRules {
+            ensure_final_newline: true,
+            remove_trailing_spaces: false,
+            ..FormatRules::default()
+        }
+    )]
+    #[case::dir_outside(
+        DIRECTORY_RULES,
+        "root.txt",
+        FormatRules {
+            ensure_final_newline: true,
+            remove_trailing_spaces: true,
+            ..FormatRules::default()
+        }
+    )]
+    #[case::extension_md(
+        EXTENSION_RULES,
+        "README.md",
+        FormatRules {
+            ensure_final_newline: false,
+            remove_trailing_spaces: false,
+            ..FormatRules::default()
+        }
+    )]
+    #[case::extension_txt(
+        EXTENSION_RULES,
+        "test.txt",
+        FormatRules {
+            ensure_final_newline: true,
+            remove_trailing_spaces: true,
+            ..FormatRules::default()
+        }
+    )]
+    fn test_pattern_matching(
+        #[case] config: &str,
+        #[case] file_path: &str,
+        #[case] expected: FormatRules,
+    ) {
         let workspace = TestWorkspace::new();
-        workspace.write_editorconfig(
-            ".",
-            r#"
-root = true
+        workspace.write_editorconfig(".", config);
+        workspace.write_file(file_path, "test");
 
-[*]
-insert_final_newline = true
-trim_trailing_whitespace = true
-trim_leading_newlines = true
-
-[*.md]
-trim_trailing_whitespace = false
-"#,
-        );
-
-        workspace.write_file("test.md", "test");
-        let md_rules = workspace.rules("test.md");
-        assert_eq!(
-            md_rules,
-            FormatRules {
-                ensure_final_newline: true,
-                remove_trailing_spaces: false,
-                remove_leading_newlines: true,
-            }
-        );
-
-        workspace.write_file("test.txt", "test");
-        let txt_rules = workspace.rules("test.txt");
-        assert_eq!(
-            txt_rules,
-            FormatRules {
-                ensure_final_newline: true,
-                remove_trailing_spaces: true,
-                remove_leading_newlines: true,
-            }
-        );
-    }
-
-    #[test]
-    fn test_custom_property_trim_leading_newlines() {
-        let workspace = TestWorkspace::new();
-        workspace.write_editorconfig(
-            ".",
-            r#"
-root = true
-
-[*]
-insert_final_newline = true
-trim_trailing_whitespace = true
-trim_leading_newlines = true
-"#,
-        );
-
-        workspace.write_file("test.txt", "test");
-        let rules = workspace.rules("test.txt");
-        assert!(rules.remove_leading_newlines);
-    }
-
-    #[test]
-    fn test_directory_pattern_matching() {
-        let workspace = TestWorkspace::new();
-        workspace.write_editorconfig(
-            ".",
-            r#"
-root = true
-
-[*]
-insert_final_newline = true
-trim_trailing_whitespace = true
-
-[test/**]
-trim_trailing_whitespace = false
-"#,
-        );
-
-        workspace.write_file("test/example.txt", "test");
-        let test_rules = workspace.rules("test/example.txt");
-        assert_eq!(
-            test_rules,
-            FormatRules {
-                ensure_final_newline: true,
-                remove_trailing_spaces: false,
-                remove_leading_newlines: false,
-            }
-        );
-
-        workspace.write_file("root.txt", "test");
-        let root_rules = workspace.rules("root.txt");
-        assert_eq!(
-            root_rules,
-            FormatRules {
-                ensure_final_newline: true,
-                remove_trailing_spaces: true,
-                remove_leading_newlines: false,
-            }
-        );
+        let rules = workspace.rules(file_path);
+        assert_eq!(rules, expected);
     }
 
     #[test]
@@ -451,297 +509,89 @@ trim_trailing_whitespace = false
         );
     }
 
-    #[test]
-    fn test_extension_pattern_matching() {
+    #[rstest]
+    #[case::parent_lookup(
+        vec![(".", PARENT_ROOT_TRUE)],
+        "subdir/test.txt",
+        FormatRules {
+            ensure_final_newline: true,
+            remove_trailing_spaces: true,
+            ..FormatRules::default()
+        }
+    )]
+    #[case::child_overrides(
+        vec![(".", PARENT_ROOT_TRUE), ("subdir", CHILD_OVERRIDE)],
+        "subdir/test.txt",
+        FormatRules {
+            ensure_final_newline: true,
+            remove_trailing_spaces: false,
+            remove_leading_newlines: true,
+        }
+    )]
+    #[case::root_stops_search(
+        vec![(".", PARENT_ROOT_TRUE), ("subdir", CHILD_ROOT_STOP)],
+        "subdir/test.txt",
+        FormatRules {
+            ensure_final_newline: false,
+            remove_trailing_spaces: false,
+            ..FormatRules::default()
+        }
+    )]
+    #[case::root_false_propagates(
+        vec![(".", NO_ROOT_INSERT_FINAL), ("child", CHILD_ROOT_FALSE_TRIM)],
+        "child/test.txt",
+        FormatRules {
+            ensure_final_newline: true,
+            remove_trailing_spaces: true,
+            ..FormatRules::default()
+        }
+    )]
+    #[case::missing_root_merges(
+        vec![(".", NO_ROOT_INSERT_FINAL), ("mid", MID_NO_ROOT_TRIM)],
+        "mid/leaf/test.txt",
+        FormatRules {
+            ensure_final_newline: true,
+            remove_trailing_spaces: true,
+            ..FormatRules::default()
+        }
+    )]
+    fn test_hierarchy(
+        #[case] configs: Vec<(&str, &str)>,
+        #[case] file_path: &str,
+        #[case] expected: FormatRules,
+    ) {
         let workspace = TestWorkspace::new();
-        workspace.write_editorconfig(
-            ".",
-            r#"
-root = true
+        for (dir, config) in configs {
+            workspace.write_editorconfig(dir, config);
+        }
+        workspace.write_file(file_path, "test");
 
-[*]
-insert_final_newline = true
-
-[*.md]
-insert_final_newline = false
-trim_trailing_whitespace = false
-
-[*.txt]
-trim_trailing_whitespace = true
-"#,
-        );
-
-        workspace.write_file("README.md", "test");
-        let md_rules = workspace.rules("README.md");
-        assert_eq!(
-            md_rules,
-            FormatRules {
-                ensure_final_newline: false,
-                remove_trailing_spaces: false,
-                remove_leading_newlines: false,
-            }
-        );
-
-        workspace.write_file("test.txt", "test");
-        let txt_rules = workspace.rules("test.txt");
-        assert_eq!(
-            txt_rules,
-            FormatRules {
-                ensure_final_newline: true,
-                remove_trailing_spaces: true,
-                remove_leading_newlines: false,
-            }
-        );
+        let rules = workspace.rules(file_path);
+        assert_eq!(rules, expected);
     }
 
-    #[test]
-    fn test_parent_directory_lookup() {
+    #[rstest]
+    #[case::brace_js("*.{js,ts}", "test.js", true)]
+    #[case::brace_ts("*.{js,ts}", "test.ts", true)]
+    #[case::brace_txt("*.{js,ts}", "test.txt", false)]
+    #[case::range_match("file[0-9].txt", "file5.txt", true)]
+    #[case::range_miss("file[0-9].txt", "fileA.txt", false)]
+    #[case::double_star("**/test/*.txt", "foo/bar/test/example.txt", true)]
+    fn test_glob_patterns(
+        #[case] pattern: &str,
+        #[case] file_path: &str,
+        #[case] should_match: bool,
+    ) {
         let workspace = TestWorkspace::new();
-        workspace.write_editorconfig(
-            ".",
-            r#"
-root = true
-
-[*]
-insert_final_newline = true
-trim_trailing_whitespace = true
-"#,
+        let config = format!(
+            "root = true\n\n[{}]\ninsert_final_newline = true\n",
+            pattern
         );
+        workspace.write_editorconfig(".", &config);
+        workspace.write_file(file_path, "test");
 
-        workspace.write_file("subdir/test.txt", "test");
-        let rules = workspace.rules("subdir/test.txt");
-        assert_eq!(
-            rules,
-            FormatRules {
-                ensure_final_newline: true,
-                remove_trailing_spaces: true,
-                remove_leading_newlines: false,
-            },
-            "File in subdirectory should inherit settings from parent .editorconfig"
-        );
-    }
-
-    #[test]
-    fn test_hierarchical_config_merging() {
-        let workspace = TestWorkspace::new();
-        workspace.write_editorconfig(
-            ".",
-            r#"
-root = true
-
-[*]
-insert_final_newline = true
-trim_trailing_whitespace = true
-"#,
-        );
-
-        workspace.write_editorconfig(
-            "subdir",
-            r#"
-[*]
-trim_trailing_whitespace = false
-trim_leading_newlines = true
-"#,
-        );
-
-        workspace.write_file("subdir/test.txt", "test");
-        let rules = workspace.rules("subdir/test.txt");
-        assert_eq!(
-            rules,
-            FormatRules {
-                ensure_final_newline: true,
-                remove_trailing_spaces: false,
-                remove_leading_newlines: true,
-            },
-            "Child .editorconfig should override parent settings while inheriting others"
-        );
-    }
-
-    #[test]
-    fn test_root_directive_stops_search() {
-        let workspace = TestWorkspace::new();
-        workspace.write_editorconfig(
-            ".",
-            r#"
-[*]
-insert_final_newline = true
-trim_trailing_whitespace = true
-"#,
-        );
-
-        workspace.write_editorconfig(
-            "subdir",
-            r#"
-root = true
-
-[*]
-trim_trailing_whitespace = false
-"#,
-        );
-
-        workspace.write_file("subdir/test.txt", "test");
-        let rules = workspace.rules("subdir/test.txt");
-        assert_eq!(
-            rules,
-            FormatRules {
-                ensure_final_newline: false,
-                remove_trailing_spaces: false,
-                remove_leading_newlines: false,
-            },
-            "root=true should stop search and not inherit from parent"
-        );
-    }
-
-    #[test]
-    fn test_root_false_allows_parent_lookup() {
-        let workspace = TestWorkspace::new();
-        workspace.write_editorconfig(
-            ".",
-            r#"
-
-[*]
-insert_final_newline = true
-"#,
-        );
-
-        workspace.write_editorconfig(
-            "child",
-            r#"
-root = false
-
-[*]
-trim_trailing_whitespace = true
-"#,
-        );
-
-        workspace.write_file("child/test.txt", "test");
-        let rules = workspace.rules("child/test.txt");
-        assert_eq!(
-            rules,
-            FormatRules {
-                ensure_final_newline: true,
-                remove_trailing_spaces: true,
-                remove_leading_newlines: false,
-            }
-        );
-    }
-
-    #[test]
-    fn test_missing_root_directive_still_merges_ancestors() {
-        let workspace = TestWorkspace::new();
-        workspace.write_editorconfig(
-            ".",
-            r#"
-
-[*]
-insert_final_newline = true
-"#,
-        );
-
-        workspace.write_editorconfig(
-            "mid",
-            r#"
-
-[*]
-trim_trailing_whitespace = true
-"#,
-        );
-
-        workspace.write_file("mid/leaf/test.txt", "test");
-        let rules = workspace.rules("mid/leaf/test.txt");
-        assert_eq!(
-            rules,
-            FormatRules {
-                ensure_final_newline: true,
-                remove_trailing_spaces: true,
-                remove_leading_newlines: false,
-            }
-        );
-    }
-
-    #[test]
-    fn test_glob_pattern_brace_expansion() {
-        let workspace = TestWorkspace::new();
-        workspace.write_editorconfig(
-            ".",
-            r#"
-root = true
-
-[*.{js,ts}]
-insert_final_newline = true
-trim_trailing_whitespace = true
-"#,
-        );
-
-        workspace.write_file("test.js", "test");
-        let js_rules = workspace.rules("test.js");
-        assert!(
-            js_rules.ensure_final_newline,
-            "*.{{js,ts}} pattern should match .js files"
-        );
-        assert!(js_rules.remove_trailing_spaces);
-
-        workspace.write_file("test.ts", "test");
-        let ts_rules = workspace.rules("test.ts");
-        assert!(
-            ts_rules.ensure_final_newline,
-            "*.{{js,ts}} pattern should match .ts files"
-        );
-        assert!(ts_rules.remove_trailing_spaces);
-
-        workspace.write_file("test.txt", "test");
-        let txt_rules = workspace.rules("test.txt");
-        assert!(
-            !txt_rules.ensure_final_newline,
-            "*.{{js,ts}} pattern should NOT match .txt files"
-        );
-    }
-
-    #[test]
-    fn test_glob_pattern_character_range() {
-        let workspace = TestWorkspace::new();
-        workspace.write_editorconfig(
-            ".",
-            r#"
-root = true
-
-[file[0-9].txt]
-insert_final_newline = true
-"#,
-        );
-
-        workspace.write_file("file5.txt", "test");
-        assert!(
-            workspace.rules("file5.txt").ensure_final_newline,
-            "file[0-9].txt pattern should match file5.txt"
-        );
-
-        workspace.write_file("fileA.txt", "test");
-        assert!(
-            !workspace.rules("fileA.txt").ensure_final_newline,
-            "file[0-9].txt pattern should NOT match fileA.txt"
-        );
-    }
-
-    #[test]
-    fn test_glob_pattern_double_asterisk() {
-        let workspace = TestWorkspace::new();
-        workspace.write_editorconfig(
-            ".",
-            r#"
-root = true
-
-[**/test/*.txt]
-insert_final_newline = true
-"#,
-        );
-
-        workspace.write_file("foo/bar/test/example.txt", "test");
-        let rules = workspace.rules("foo/bar/test/example.txt");
-        assert!(
-            rules.ensure_final_newline,
-            "**/test/*.txt pattern should match files in deeply nested test directories"
-        );
+        let rules = workspace.rules(file_path);
+        assert_eq!(rules.ensure_final_newline, should_match);
     }
 
     #[test]
