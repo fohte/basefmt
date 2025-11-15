@@ -712,6 +712,97 @@ trim_trailing_whitespace = false
     }
 
     #[test]
+    fn test_root_false_allows_parent_lookup() {
+        // Given: parent config without root=true and child config with root=false explicitly set
+        let temp_dir = TempDir::new().unwrap();
+        let parent_config = temp_dir.path().join(".editorconfig");
+        fs::write(
+            &parent_config,
+            r#"
+
+[*]
+insert_final_newline = true
+"#,
+        )
+        .unwrap();
+
+        let child_dir = temp_dir.path().join("child");
+        fs::create_dir(&child_dir).unwrap();
+        fs::write(
+            child_dir.join(".editorconfig"),
+            r#"
+root = false
+
+[*]
+trim_trailing_whitespace = true
+"#,
+        )
+        .unwrap();
+
+        let test_file = child_dir.join("test.txt");
+        fs::write(&test_file, "test").unwrap();
+
+        // When: resolving rules for the child file
+        let rules = get_format_rules(&test_file);
+
+        // Then: settings should merge across both configs because root=false must not stop traversal
+        assert_eq!(
+            rules,
+            FormatRules {
+                ensure_final_newline: true,  // inherited from parent
+                remove_trailing_spaces: true, // from child
+                remove_leading_newlines: false,
+            }
+        );
+    }
+
+    #[test]
+    fn test_missing_root_directive_still_merges_ancestors() {
+        // Given: two ancestor .editorconfig files that never declare root=true
+        let temp_dir = TempDir::new().unwrap();
+        let top_config = temp_dir.path().join(".editorconfig");
+        fs::write(
+            &top_config,
+            r#"
+
+[*]
+insert_final_newline = true
+"#,
+        )
+        .unwrap();
+
+        let mid_dir = temp_dir.path().join("mid");
+        fs::create_dir(&mid_dir).unwrap();
+        fs::write(
+            mid_dir.join(".editorconfig"),
+            r#"
+
+[*]
+trim_trailing_whitespace = true
+"#,
+        )
+        .unwrap();
+
+        let leaf_dir = mid_dir.join("leaf");
+        fs::create_dir(&leaf_dir).unwrap();
+        let test_file = leaf_dir.join("test.txt");
+        fs::write(&test_file, "test").unwrap();
+
+        // When: gathering rules for the leaf file
+        let rules = get_format_rules(&test_file);
+
+        // Then: both ancestor configs should be applied because traversal reaches filesystem root
+        assert_eq!(
+            rules,
+            FormatRules {
+                ensure_final_newline: true,
+                remove_trailing_spaces: true,
+                remove_leading_newlines: false,
+            }
+        );
+    }
+
+    #[test]
     fn test_glob_pattern_brace_expansion() {
         // Given: braces pattern like {js,ts}
         let temp_dir = TempDir::new().unwrap();
