@@ -210,135 +210,11 @@ fn rules_from_properties(properties: &Properties) -> FormatRules {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use indoc::indoc;
     use rstest::rstest;
     use std::fs;
     use std::path::{Path, PathBuf};
     use tempfile::TempDir;
-
-    mod configs {
-        pub const ALL_TRUE: &str = r#"
-root = true
-
-[*]
-insert_final_newline = true
-trim_trailing_whitespace = true
-trim_leading_newlines = true
-"#;
-
-        pub const ALL_FALSE: &str = r#"
-root = true
-
-[*]
-insert_final_newline = false
-trim_trailing_whitespace = false
-trim_leading_newlines = false
-"#;
-
-        pub const UNSET: &str = r#"
-root = true
-
-[*]
-insert_final_newline = unset
-trim_trailing_whitespace = unset
-trim_leading_newlines = unset
-"#;
-
-        pub const NOT_PRESENT: &str = r#"
-root = true
-
-[*]
-charset = utf-8
-indent_style = space
-"#;
-
-        pub const MIXED: &str = r#"
-root = true
-
-[*]
-insert_final_newline = true
-trim_trailing_whitespace = false
-trim_leading_newlines = true
-"#;
-
-        pub const SECTION_OVERRIDE: &str = r#"
-root = true
-
-[*]
-insert_final_newline = true
-trim_trailing_whitespace = true
-trim_leading_newlines = true
-
-[*.md]
-trim_trailing_whitespace = false
-"#;
-
-        pub const DIRECTORY_RULES: &str = r#"
-root = true
-
-[*]
-insert_final_newline = true
-trim_trailing_whitespace = true
-
-[test/**]
-trim_trailing_whitespace = false
-"#;
-
-        pub const EXTENSION_RULES: &str = r#"
-root = true
-
-[*]
-insert_final_newline = true
-
-[*.md]
-insert_final_newline = false
-trim_trailing_whitespace = false
-
-[*.txt]
-trim_trailing_whitespace = true
-"#;
-
-        pub const PARENT_ROOT_TRUE: &str = r#"
-root = true
-
-[*]
-insert_final_newline = true
-trim_trailing_whitespace = true
-"#;
-
-        pub const NO_ROOT_INSERT_FINAL: &str = r#"
-
-[*]
-insert_final_newline = true
-"#;
-
-        pub const CHILD_OVERRIDE: &str = r#"
-[*]
-trim_trailing_whitespace = false
-trim_leading_newlines = true
-"#;
-
-        pub const CHILD_ROOT_STOP: &str = r#"
-root = true
-
-[*]
-trim_trailing_whitespace = false
-"#;
-
-        pub const CHILD_ROOT_FALSE_TRIM: &str = r#"
-root = false
-
-[*]
-trim_trailing_whitespace = true
-"#;
-
-        pub const MID_NO_ROOT_TRIM: &str = r#"
-
-[*]
-trim_trailing_whitespace = true
-"#;
-    }
-
-    use configs::*;
 
     struct TestWorkspace {
         temp_dir: TempDir,
@@ -378,7 +254,14 @@ trim_trailing_whitespace = true
 
     #[rstest]
     #[case::all_true(
-        ALL_TRUE,
+        indoc! {"
+            root = true
+
+            [*]
+            insert_final_newline = true
+            trim_trailing_whitespace = true
+            trim_leading_newlines = true
+        "},
         FormatRules {
             ensure_final_newline: true,
             remove_trailing_spaces: true,
@@ -386,7 +269,14 @@ trim_trailing_whitespace = true
         }
     )]
     #[case::all_false(
-        ALL_FALSE,
+        indoc! {"
+            root = true
+
+            [*]
+            insert_final_newline = false
+            trim_trailing_whitespace = false
+            trim_leading_newlines = false
+        "},
         FormatRules {
             ensure_final_newline: false,
             remove_trailing_spaces: false,
@@ -394,7 +284,14 @@ trim_trailing_whitespace = true
         }
     )]
     #[case::unset(
-        UNSET,
+        indoc! {"
+            root = true
+
+            [*]
+            insert_final_newline = unset
+            trim_trailing_whitespace = unset
+            trim_leading_newlines = unset
+        "},
         FormatRules {
             ensure_final_newline: false,
             remove_trailing_spaces: false,
@@ -402,7 +299,13 @@ trim_trailing_whitespace = true
         }
     )]
     #[case::not_present(
-        NOT_PRESENT,
+        indoc! {"
+            root = true
+
+            [*]
+            charset = utf-8
+            indent_style = space
+        "},
         FormatRules {
             ensure_final_newline: false,
             remove_trailing_spaces: false,
@@ -410,7 +313,14 @@ trim_trailing_whitespace = true
         }
     )]
     #[case::mixed(
-        MIXED,
+        indoc! {"
+            root = true
+
+            [*]
+            insert_final_newline = true
+            trim_trailing_whitespace = false
+            trim_leading_newlines = true
+        "},
         FormatRules {
             ensure_final_newline: true,
             remove_trailing_spaces: false,
@@ -428,7 +338,17 @@ trim_trailing_whitespace = true
 
     #[rstest]
     #[case::section_markdown(
-        SECTION_OVERRIDE,
+        indoc! {"
+            root = true
+
+            [*]
+            insert_final_newline = true
+            trim_trailing_whitespace = true
+            trim_leading_newlines = true
+
+            [*.md]
+            trim_trailing_whitespace = false
+        "},
         "test.md",
         FormatRules {
             ensure_final_newline: true,
@@ -437,7 +357,17 @@ trim_trailing_whitespace = true
         }
     )]
     #[case::section_txt(
-        SECTION_OVERRIDE,
+        indoc! {"
+            root = true
+
+            [*]
+            insert_final_newline = true
+            trim_trailing_whitespace = true
+            trim_leading_newlines = true
+
+            [*.md]
+            trim_trailing_whitespace = false
+        "},
         "test.txt",
         FormatRules {
             ensure_final_newline: true,
@@ -446,7 +376,16 @@ trim_trailing_whitespace = true
         }
     )]
     #[case::dir_match(
-        DIRECTORY_RULES,
+        indoc! {"
+            root = true
+
+            [*]
+            insert_final_newline = true
+            trim_trailing_whitespace = true
+
+            [test/**]
+            trim_trailing_whitespace = false
+        "},
         "test/example.txt",
         FormatRules {
             ensure_final_newline: true,
@@ -455,7 +394,16 @@ trim_trailing_whitespace = true
         }
     )]
     #[case::dir_outside(
-        DIRECTORY_RULES,
+        indoc! {"
+            root = true
+
+            [*]
+            insert_final_newline = true
+            trim_trailing_whitespace = true
+
+            [test/**]
+            trim_trailing_whitespace = false
+        "},
         "root.txt",
         FormatRules {
             ensure_final_newline: true,
@@ -464,7 +412,19 @@ trim_trailing_whitespace = true
         }
     )]
     #[case::extension_md(
-        EXTENSION_RULES,
+        indoc! {"
+            root = true
+
+            [*]
+            insert_final_newline = true
+
+            [*.md]
+            insert_final_newline = false
+            trim_trailing_whitespace = false
+
+            [*.txt]
+            trim_trailing_whitespace = true
+        "},
         "README.md",
         FormatRules {
             ensure_final_newline: false,
@@ -473,7 +433,19 @@ trim_trailing_whitespace = true
         }
     )]
     #[case::extension_txt(
-        EXTENSION_RULES,
+        indoc! {"
+            root = true
+
+            [*]
+            insert_final_newline = true
+
+            [*.md]
+            insert_final_newline = false
+            trim_trailing_whitespace = false
+
+            [*.txt]
+            trim_trailing_whitespace = true
+        "},
         "test.txt",
         FormatRules {
             ensure_final_newline: true,
@@ -511,7 +483,18 @@ trim_trailing_whitespace = true
 
     #[rstest]
     #[case::parent_lookup(
-        vec![(".", PARENT_ROOT_TRUE)],
+        vec![
+            (
+                ".",
+                indoc! {"
+                    root = true
+
+                    [*]
+                    insert_final_newline = true
+                    trim_trailing_whitespace = true
+                "},
+            ),
+        ],
         "subdir/test.txt",
         FormatRules {
             ensure_final_newline: true,
@@ -520,7 +503,26 @@ trim_trailing_whitespace = true
         }
     )]
     #[case::child_overrides(
-        vec![(".", PARENT_ROOT_TRUE), ("subdir", CHILD_OVERRIDE)],
+        vec![
+            (
+                ".",
+                indoc! {"
+                    root = true
+
+                    [*]
+                    insert_final_newline = true
+                    trim_trailing_whitespace = true
+                "},
+            ),
+            (
+                "subdir",
+                indoc! {"
+                    [*]
+                    trim_trailing_whitespace = false
+                    trim_leading_newlines = true
+                "},
+            ),
+        ],
         "subdir/test.txt",
         FormatRules {
             ensure_final_newline: true,
@@ -529,7 +531,27 @@ trim_trailing_whitespace = true
         }
     )]
     #[case::root_stops_search(
-        vec![(".", PARENT_ROOT_TRUE), ("subdir", CHILD_ROOT_STOP)],
+        vec![
+            (
+                ".",
+                indoc! {"
+                    root = true
+
+                    [*]
+                    insert_final_newline = true
+                    trim_trailing_whitespace = true
+                "},
+            ),
+            (
+                "subdir",
+                indoc! {"
+                    root = true
+
+                    [*]
+                    trim_trailing_whitespace = false
+                "},
+            ),
+        ],
         "subdir/test.txt",
         FormatRules {
             ensure_final_newline: false,
@@ -538,7 +560,25 @@ trim_trailing_whitespace = true
         }
     )]
     #[case::root_false_propagates(
-        vec![(".", NO_ROOT_INSERT_FINAL), ("child", CHILD_ROOT_FALSE_TRIM)],
+        vec![
+            (
+                ".",
+                indoc! {"
+
+                    [*]
+                    insert_final_newline = true
+                "},
+            ),
+            (
+                "child",
+                indoc! {"
+                    root = false
+
+                    [*]
+                    trim_trailing_whitespace = true
+                "},
+            ),
+        ],
         "child/test.txt",
         FormatRules {
             ensure_final_newline: true,
@@ -547,7 +587,24 @@ trim_trailing_whitespace = true
         }
     )]
     #[case::missing_root_merges(
-        vec![(".", NO_ROOT_INSERT_FINAL), ("mid", MID_NO_ROOT_TRIM)],
+        vec![
+            (
+                ".",
+                indoc! {"
+
+                    [*]
+                    insert_final_newline = true
+                "},
+            ),
+            (
+                "mid",
+                indoc! {"
+
+                    [*]
+                    trim_trailing_whitespace = true
+                "},
+            ),
+        ],
         "mid/leaf/test.txt",
         FormatRules {
             ensure_final_newline: true,
@@ -599,12 +656,12 @@ trim_trailing_whitespace = true
         let workspace = TestWorkspace::new();
         workspace.write_editorconfig(
             ".",
-            r#"
-root = true
+            indoc! {"
+                root = true
 
-[*]
-insert_final_newline = invalid_value
-"#,
+                [*]
+                insert_final_newline = invalid_value
+            "},
         );
 
         workspace.write_file("test.txt", "test");
@@ -639,12 +696,12 @@ insert_final_newline = invalid_value
         let workspace = TestWorkspace::new();
         workspace.write_editorconfig(
             ".",
-            r#"
-root = true
+            indoc! {"
+                root = true
 
-[*]
-insert_final_newline = true
-"#,
+                [*]
+                insert_final_newline = true
+            "},
         );
 
         let real_file = workspace.write_file("real.txt", "test");
