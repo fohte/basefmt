@@ -749,7 +749,7 @@ trim_trailing_whitespace = true
         assert_eq!(
             rules,
             FormatRules {
-                ensure_final_newline: true,  // inherited from parent
+                ensure_final_newline: true,   // inherited from parent
                 remove_trailing_spaces: true, // from child
                 remove_leading_newlines: false,
             }
