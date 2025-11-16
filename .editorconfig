@@ -13,3 +13,8 @@ indent_size = 4
 
 [*.md{,x}]
 trim_trailing_whitespace = false
+
+[tests/fixtures/input/**]
+insert_final_newline = false
+trim_trailing_whitespace = false
+trim_leading_newlines = false

@@ -1,3 +1,4 @@
+use crate::editorconfig;
 use std::fs;
 use std::io::{self, Read, Write};
 use std::path::Path;
@@ -25,7 +26,10 @@ pub enum CheckResult {
     Skipped,
 }
 
-fn read_and_format(path: &Path) -> io::Result<Option<(String, String, fs::Metadata)>> {
+fn read_and_format_with_rules(
+    path: &Path,
+    rules: &editorconfig::FormatRules,
+) -> io::Result<Option<(String, String, fs::Metadata)>> {
     let file = fs::File::open(path)?;
     let metadata = file.metadata()?;
 
@@ -33,7 +37,7 @@ fn read_and_format(path: &Path) -> io::Result<Option<(String, String, fs::Metada
     let mut reader = io::BufReader::new(file);
     match reader.read_to_string(&mut content) {
         Ok(_) => {
-            let formatted = format_content(&content);
+            let formatted = format_content(&content, rules);
             Ok(Some((content, formatted, metadata)))
         }
         Err(err) if err.kind() == io::ErrorKind::InvalidData => {
@@ -82,29 +86,51 @@ fn read_and_format(path: &Path) -> io::Result<Option<(String, String, fs::Metada
 /// }
 /// ```
 pub fn format_file(path: &Path) -> io::Result<FormatResult> {
-    if let Some((content, formatted, metadata)) = read_and_format(path)? {
-        let changed = content != formatted;
+    let rules = editorconfig::get_format_rules(path);
+    format_file_with_rules(path, &rules)
+}
+
+/// Formats a file in place using precomputed formatting rules.
+pub fn format_file_with_rules(
+    path: &Path,
+    rules: &editorconfig::FormatRules,
+) -> io::Result<FormatResult> {
+    if let Some((content, formatted, metadata)) = read_and_format_with_rules(path, rules)? {
+        let changed = write_formatted_output(path, content, formatted, metadata)?;
         if changed {
-            // Write to a temporary file first, then rename to preserve metadata
-            let parent_dir = path.parent().unwrap_or_else(|| Path::new("."));
-            let mut temp_file = NamedTempFile::new_in(parent_dir)?;
-            temp_file.write_all(formatted.as_bytes())?;
-            temp_file.as_file().sync_all()?;
-
-            // Set permissions before persisting
-            temp_file.as_file().set_permissions(metadata.permissions())?;
-
-            // Atomically replace the original file
-            temp_file.persist(path)?;
-
             Ok(FormatResult::Changed)
         } else {
             Ok(FormatResult::Unchanged)
         }
     } else {
-        // Binary file, skip silently
         Ok(FormatResult::Skipped)
     }
+}
+
+fn write_formatted_output(
+    path: &Path,
+    original: String,
+    formatted: String,
+    metadata: fs::Metadata,
+) -> io::Result<bool> {
+    let changed = original != formatted;
+    if changed {
+        // Write to a temporary file first, then rename to preserve metadata
+        let parent_dir = path.parent().unwrap_or_else(|| Path::new("."));
+        let mut temp_file = NamedTempFile::new_in(parent_dir)?;
+        temp_file.write_all(formatted.as_bytes())?;
+        temp_file.as_file().sync_all()?;
+
+        // Set permissions before persisting
+        temp_file
+            .as_file()
+            .set_permissions(metadata.permissions())?;
+
+        // Atomically replace the original file
+        temp_file.persist(path)?;
+    }
+
+    Ok(changed)
 }
 
 /// Checks if a file is properly formatted without modifying it.
@@ -136,26 +162,44 @@ pub fn format_file(path: &Path) -> io::Result<FormatResult> {
 /// }
 /// ```
 pub fn check_file(path: &Path) -> io::Result<CheckResult> {
-    if let Some((content, formatted, _metadata)) = read_and_format(path)? {
+    let rules = editorconfig::get_format_rules(path);
+    check_file_with_rules(path, &rules)
+}
+
+/// Checks a file using already resolved formatting rules.
+pub fn check_file_with_rules(
+    path: &Path,
+    rules: &editorconfig::FormatRules,
+) -> io::Result<CheckResult> {
+    if let Some((content, formatted, _metadata)) = read_and_format_with_rules(path, rules)? {
         if content == formatted {
             Ok(CheckResult::Formatted)
         } else {
             Ok(CheckResult::NeedsFormatting)
         }
     } else {
-        // Binary file, skip silently
         Ok(CheckResult::Skipped)
     }
 }
 
-fn format_content(content: &str) -> String {
-    // Collect lines while skipping leading empty lines
-    let mut lines: Vec<&str> = content
-        .lines()
-        .skip_while(|line| line.is_empty())
-        .collect();
+fn format_content(content: &str, rules: &editorconfig::FormatRules) -> String {
+    // If no rules are enabled, return content as-is
+    if !rules.remove_leading_newlines
+        && !rules.remove_trailing_spaces
+        && !rules.ensure_final_newline
+    {
+        return content.to_string();
+    }
 
-    // Remove trailing empty lines
+    // Collect lines, optionally skipping leading empty lines
+    let lines_iter = content.lines();
+    let mut lines: Vec<&str> = if rules.remove_leading_newlines {
+        lines_iter.skip_while(|line| line.is_empty()).collect()
+    } else {
+        lines_iter.collect()
+    };
+
+    // Always remove trailing empty lines (to normalize file endings)
     while lines.last().is_some_and(|line| line.is_empty()) {
         lines.pop();
     }
@@ -170,9 +214,19 @@ fn format_content(content: &str) -> String {
         if i > 0 {
             result.push('\n');
         }
-        result.push_str(line.trim_end());
+        // Optionally trim trailing spaces
+        if rules.remove_trailing_spaces {
+            result.push_str(line.trim_end());
+        } else {
+            result.push_str(line);
+        }
     }
-    result.push('\n');
+
+    // Optionally add final newline
+    if rules.ensure_final_newline {
+        result.push('\n');
+    }
+
     result
 }
 
@@ -182,51 +236,99 @@ mod tests {
     use std::fs;
     use tempfile::TempDir;
 
+    // Helper function to create a .editorconfig file with all rules enabled
+    fn create_default_editorconfig(dir: &TempDir) {
+        let config_path = dir.path().join(".editorconfig");
+        fs::write(
+            config_path,
+            r#"
+root = true
+
+[*]
+insert_final_newline = true
+trim_trailing_whitespace = true
+trim_leading_newlines = true
+"#,
+        )
+        .unwrap();
+    }
+
     #[test]
     fn test_format_content_removes_leading_newlines() {
+        let rules = editorconfig::FormatRules {
+            ensure_final_newline: true,
+            remove_trailing_spaces: true,
+            remove_leading_newlines: true,
+        };
         let input = "\n\nfirst line\nsecond line\n";
         let expected = "first line\nsecond line\n";
-        assert_eq!(format_content(input), expected);
+        assert_eq!(format_content(input, &rules), expected);
     }
 
     #[test]
     fn test_format_content_removes_trailing_spaces() {
+        let rules = editorconfig::FormatRules {
+            ensure_final_newline: true,
+            remove_trailing_spaces: true,
+            remove_leading_newlines: true,
+        };
         let input = "line with trailing spaces   \nanother line with spaces  \n";
         let expected = "line with trailing spaces\nanother line with spaces\n";
-        assert_eq!(format_content(input), expected);
+        assert_eq!(format_content(input, &rules), expected);
     }
 
     #[test]
     fn test_format_content_adds_final_newline() {
+        let rules = editorconfig::FormatRules {
+            ensure_final_newline: true,
+            remove_trailing_spaces: true,
+            remove_leading_newlines: true,
+        };
         let input = "first line\nsecond line";
         let expected = "first line\nsecond line\n";
-        assert_eq!(format_content(input), expected);
+        assert_eq!(format_content(input, &rules), expected);
     }
 
     #[test]
     fn test_format_content_removes_multiple_final_newlines() {
+        let rules = editorconfig::FormatRules {
+            ensure_final_newline: true,
+            remove_trailing_spaces: true,
+            remove_leading_newlines: true,
+        };
         let input = "first line\nsecond line\n\n\n";
         let expected = "first line\nsecond line\n";
-        assert_eq!(format_content(input), expected);
+        assert_eq!(format_content(input, &rules), expected);
     }
 
     #[test]
     fn test_format_content_empty_file() {
+        let rules = editorconfig::FormatRules {
+            ensure_final_newline: true,
+            remove_trailing_spaces: true,
+            remove_leading_newlines: true,
+        };
         let input = "";
         let expected = "";
-        assert_eq!(format_content(input), expected);
+        assert_eq!(format_content(input, &rules), expected);
     }
 
     #[test]
     fn test_format_content_only_newlines() {
+        let rules = editorconfig::FormatRules {
+            ensure_final_newline: true,
+            remove_trailing_spaces: true,
+            remove_leading_newlines: true,
+        };
         let input = "\n\n\n";
         let expected = "";
-        assert_eq!(format_content(input), expected);
+        assert_eq!(format_content(input, &rules), expected);
     }
 
     #[test]
     fn test_format_file_creates_changes() {
         let temp_dir = TempDir::new().unwrap();
+        create_default_editorconfig(&temp_dir);
         let file_path = temp_dir.path().join("test.txt");
         fs::write(&file_path, "\n\ntest content  \n\n").unwrap();
 
@@ -240,6 +342,7 @@ mod tests {
     #[test]
     fn test_format_file_no_changes() {
         let temp_dir = TempDir::new().unwrap();
+        create_default_editorconfig(&temp_dir);
         let file_path = temp_dir.path().join("test.txt");
         fs::write(&file_path, "test content\n").unwrap();
 
@@ -253,6 +356,7 @@ mod tests {
     #[test]
     fn test_check_file_clean() {
         let temp_dir = TempDir::new().unwrap();
+        create_default_editorconfig(&temp_dir);
         let file_path = temp_dir.path().join("test.txt");
         fs::write(&file_path, "test content\n").unwrap();
 
@@ -264,6 +368,7 @@ mod tests {
     #[test]
     fn test_check_file_dirty() {
         let temp_dir = TempDir::new().unwrap();
+        create_default_editorconfig(&temp_dir);
         let file_path = temp_dir.path().join("test.txt");
         fs::write(&file_path, "\n\ntest content  \n\n").unwrap();
 
@@ -278,6 +383,7 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
 
         let temp_dir = TempDir::new().unwrap();
+        create_default_editorconfig(&temp_dir);
         let file_path = temp_dir.path().join("test.txt");
         fs::write(&file_path, "\n\ntest content  \n\n").unwrap();
 
@@ -300,7 +406,7 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let file_path = temp_dir.path().join("binary.bin");
         // Write invalid UTF-8 bytes
-        fs::write(&file_path, &[0xFF, 0xFE, 0xFD]).unwrap();
+        fs::write(&file_path, [0xFF, 0xFE, 0xFD]).unwrap();
 
         let result = format_file(&file_path).unwrap();
 
@@ -317,7 +423,7 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let file_path = temp_dir.path().join("binary.bin");
         // Write invalid UTF-8 bytes
-        fs::write(&file_path, &[0xFF, 0xFE, 0xFD]).unwrap();
+        fs::write(&file_path, [0xFF, 0xFE, 0xFD]).unwrap();
 
         let result = check_file(&file_path).unwrap();
 

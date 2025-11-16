@@ -1,8 +1,10 @@
+use crate::config::Config;
+use crate::editorconfig::{EditorConfigCache, FormatRules};
 use crate::find::find_files;
-use crate::format::{check_file, format_file, CheckResult, FormatResult};
+use crate::format::{check_file_with_rules, format_file_with_rules, CheckResult};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// Result of a formatting or checking operation on multiple files.
@@ -33,6 +35,17 @@ impl RunnerResult {
     }
 }
 
+/// A file that needs to be formatted along with its formatting rules.
+///
+/// This structure pre-computes and caches the formatting rules for each file
+/// to avoid redundant EditorConfig lookups during parallel processing.
+struct FileTask {
+    /// Original path to the file (may be relative or absolute)
+    path: PathBuf,
+    /// Cached formatting rules from EditorConfig
+    rules: FormatRules,
+}
+
 /// Formats files in the specified paths in parallel.
 ///
 /// Finds all files in the given paths and formats them concurrently using rayon.
@@ -57,42 +70,39 @@ impl RunnerResult {
 /// println!("Formatted {} files", result.total_files);
 /// ```
 pub fn run_format(paths: &[impl AsRef<Path>]) -> io::Result<RunnerResult> {
+    let config_dir = determine_config_dir(paths);
+    let config = Config::load(config_dir).unwrap_or_default();
     let files = find_files(paths)?;
+    let config_dir_abs = config_dir
+        .canonicalize()
+        .unwrap_or_else(|_| config_dir.to_path_buf());
+
+    let mut rule_cache = EditorConfigCache::new();
+    let filtered_files = collect_tasks(files, &config, &config_dir_abs, &mut rule_cache);
+
     let error_count = AtomicUsize::new(0);
 
     // Use parallel processing only for larger file counts to avoid overhead
     const PARALLEL_THRESHOLD: usize = 10;
 
-    if files.len() < PARALLEL_THRESHOLD {
-        // Sequential processing for small workloads
-        for file in &files {
-            match format_file(file) {
-                Ok(FormatResult::Changed | FormatResult::Unchanged | FormatResult::Skipped) => {
-                    // Successfully formatted or skipped
-                }
-                Err(err) => {
-                    eprintln!("{}: {}", file.display(), err);
-                    error_count.fetch_add(1, Ordering::Relaxed);
-                }
+    if filtered_files.len() < PARALLEL_THRESHOLD {
+        for task in &filtered_files {
+            if let Err(err) = format_file_with_rules(&task.path, &task.rules) {
+                eprintln!("{}: {}", task.path.display(), err);
+                error_count.fetch_add(1, Ordering::Relaxed);
             }
         }
     } else {
-        // Parallel processing for large workloads
-        files.par_iter().for_each(|file| {
-            match format_file(file) {
-                Ok(FormatResult::Changed | FormatResult::Unchanged | FormatResult::Skipped) => {
-                    // Successfully formatted or skipped
-                }
-                Err(err) => {
-                    eprintln!("{}: {}", file.display(), err);
-                    error_count.fetch_add(1, Ordering::Relaxed);
-                }
+        filtered_files.par_iter().for_each(|task| {
+            if let Err(err) = format_file_with_rules(&task.path, &task.rules) {
+                eprintln!("{}: {}", task.path.display(), err);
+                error_count.fetch_add(1, Ordering::Relaxed);
             }
         });
     }
 
     Ok(RunnerResult {
-        total_files: files.len(),
+        total_files: filtered_files.len(),
         error_count: error_count.load(Ordering::Relaxed),
         unformatted_count: 0,
     })
@@ -124,43 +134,46 @@ pub fn run_format(paths: &[impl AsRef<Path>]) -> io::Result<RunnerResult> {
 /// }
 /// ```
 pub fn run_check(paths: &[impl AsRef<Path>]) -> io::Result<RunnerResult> {
+    let config_dir = determine_config_dir(paths);
+    let config = Config::load(config_dir).unwrap_or_default();
     let files = find_files(paths)?;
+    let config_dir_abs = config_dir
+        .canonicalize()
+        .unwrap_or_else(|_| config_dir.to_path_buf());
+
+    let mut rule_cache = EditorConfigCache::new();
+    let filtered_files = collect_tasks(files, &config, &config_dir_abs, &mut rule_cache);
+
     let error_count = AtomicUsize::new(0);
     let unformatted_count = AtomicUsize::new(0);
 
     // Use parallel processing only for larger file counts to avoid overhead
     const PARALLEL_THRESHOLD: usize = 10;
 
-    if files.len() < PARALLEL_THRESHOLD {
-        // Sequential processing for small workloads
-        for file in &files {
-            match check_file(file) {
-                Ok(CheckResult::Formatted | CheckResult::Skipped) => {
-                    // File is properly formatted or skipped
-                }
+    if filtered_files.len() < PARALLEL_THRESHOLD {
+        for task in &filtered_files {
+            match check_file_with_rules(&task.path, &task.rules) {
+                Ok(CheckResult::Formatted | CheckResult::Skipped) => {}
                 Ok(CheckResult::NeedsFormatting) => {
-                    eprintln!("{}: not formatted", file.display());
+                    eprintln!("{}: not formatted", task.path.display());
                     unformatted_count.fetch_add(1, Ordering::Relaxed);
                 }
                 Err(err) => {
-                    eprintln!("{}: {}", file.display(), err);
+                    eprintln!("{}: {}", task.path.display(), err);
                     error_count.fetch_add(1, Ordering::Relaxed);
                 }
             }
         }
     } else {
-        // Parallel processing for large workloads
-        files.par_iter().for_each(|file| {
-            match check_file(file) {
-                Ok(CheckResult::Formatted | CheckResult::Skipped) => {
-                    // File is properly formatted or skipped
-                }
+        filtered_files.par_iter().for_each(|task| {
+            match check_file_with_rules(&task.path, &task.rules) {
+                Ok(CheckResult::Formatted | CheckResult::Skipped) => {}
                 Ok(CheckResult::NeedsFormatting) => {
-                    eprintln!("{}: not formatted", file.display());
+                    eprintln!("{}: not formatted", task.path.display());
                     unformatted_count.fetch_add(1, Ordering::Relaxed);
                 }
                 Err(err) => {
-                    eprintln!("{}: {}", file.display(), err);
+                    eprintln!("{}: {}", task.path.display(), err);
                     error_count.fetch_add(1, Ordering::Relaxed);
                 }
             }
@@ -168,10 +181,53 @@ pub fn run_check(paths: &[impl AsRef<Path>]) -> io::Result<RunnerResult> {
     }
 
     Ok(RunnerResult {
-        total_files: files.len(),
+        total_files: filtered_files.len(),
         error_count: error_count.load(Ordering::Relaxed),
         unformatted_count: unformatted_count.load(Ordering::Relaxed),
     })
+}
+
+fn determine_config_dir(paths: &[impl AsRef<Path>]) -> &Path {
+    if let Some(first_path) = paths.first() {
+        let path = first_path.as_ref();
+        if path.is_dir() {
+            path
+        } else {
+            path.parent().unwrap_or_else(|| Path::new("."))
+        }
+    } else {
+        Path::new(".")
+    }
+}
+
+fn collect_tasks(
+    files: Vec<PathBuf>,
+    config: &Config,
+    config_dir_abs: &Path,
+    rule_cache: &mut EditorConfigCache,
+) -> Vec<FileTask> {
+    let mut tasks = Vec::with_capacity(files.len());
+    for path in files {
+        let canonical = match path.canonicalize() {
+            Ok(abs) => abs,
+            Err(err) => {
+                eprintln!("{}: failed to canonicalize: {}", path.display(), err);
+                continue;
+            }
+        };
+
+        let rel_path = canonical
+            .strip_prefix(config_dir_abs)
+            .unwrap_or(canonical.as_path());
+
+        if config.is_excluded(rel_path) {
+            continue;
+        }
+
+        let rules = rule_cache.rules_for(&canonical);
+        tasks.push(FileTask { path, rules });
+    }
+    tasks
 }
 
 #[cfg(test)]
@@ -179,6 +235,23 @@ mod tests {
     use super::*;
     use std::fs;
     use tempfile::TempDir;
+
+    // Helper function to create a .editorconfig file with all rules enabled
+    fn create_default_editorconfig(dir: &TempDir) {
+        let config_path = dir.path().join(".editorconfig");
+        fs::write(
+            config_path,
+            r#"
+root = true
+
+[*]
+insert_final_newline = true
+trim_trailing_whitespace = true
+trim_leading_newlines = true
+"#,
+        )
+        .unwrap();
+    }
 
     #[test]
     fn test_runner_result_exit_code_success() {
@@ -224,6 +297,7 @@ mod tests {
     #[test]
     fn test_run_format_single_file() {
         let temp_dir = TempDir::new().unwrap();
+        create_default_editorconfig(&temp_dir);
         let file = temp_dir.path().join("test.txt");
         fs::write(&file, "\n\ntest content  \n\n").unwrap();
 
@@ -241,6 +315,7 @@ mod tests {
     #[test]
     fn test_run_format_multiple_files() {
         let temp_dir = TempDir::new().unwrap();
+        create_default_editorconfig(&temp_dir);
         let file1 = temp_dir.path().join("file1.txt");
         let file2 = temp_dir.path().join("file2.txt");
         fs::write(&file1, "\n\ntest1  \n").unwrap();
@@ -280,6 +355,7 @@ mod tests {
     #[test]
     fn test_run_check_clean_files() {
         let temp_dir = TempDir::new().unwrap();
+        create_default_editorconfig(&temp_dir);
         let file1 = temp_dir.path().join("file1.txt");
         let file2 = temp_dir.path().join("file2.txt");
         fs::write(&file1, "test1\n").unwrap();
@@ -296,6 +372,7 @@ mod tests {
     #[test]
     fn test_run_check_unformatted_files() {
         let temp_dir = TempDir::new().unwrap();
+        create_default_editorconfig(&temp_dir);
         let file1 = temp_dir.path().join("file1.txt");
         let file2 = temp_dir.path().join("file2.txt");
         fs::write(&file1, "\n\ntest1\n").unwrap();
@@ -312,6 +389,7 @@ mod tests {
     #[test]
     fn test_run_check_mixed_files() {
         let temp_dir = TempDir::new().unwrap();
+        create_default_editorconfig(&temp_dir);
         let file1 = temp_dir.path().join("file1.txt");
         let file2 = temp_dir.path().join("file2.txt");
         fs::write(&file1, "test1\n").unwrap();
