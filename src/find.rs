@@ -209,7 +209,7 @@ mod tests {
 
         // The ignore crate automatically ignores .git directories and .gitignore files
         // So we should only see the normal.txt file
-        assert_eq!(result.len(), 1, "Found files: {:?}", result);
+        assert_eq!(result.len(), 1, "Found files: {result:?}");
         assert!(!result.contains(&ignored_file));
         assert!(result.contains(&normal_file));
     }
