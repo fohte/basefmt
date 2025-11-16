@@ -3,6 +3,13 @@ name = "basefmt"
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
+description = "Formatter for generic text files, ensuring final newlines and trimming spaces with EditorConfig support"
+readme = "README.md"
+repository = "https://github.com/fohte/basefmt"
+homepage = "https://github.com/fohte/basefmt"
+documentation = "https://docs.rs/basefmt"
+keywords = ["formatter", "cli"]
+categories = ["development-tools", "command-line-utilities"]
 
 [dependencies]
 clap = { version = "4.5.48", features = ["derive"] }
