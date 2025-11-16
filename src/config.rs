@@ -3,18 +3,15 @@ use serde::Deserialize;
 use std::fs;
 use std::io;
 use std::path::Path;
-use std::sync::OnceLock;
 
 /// Configuration for basefmt, typically loaded from .basefmt.toml
-#[derive(Debug, Deserialize)]
+#[derive(Debug)]
 pub struct Config {
     /// List of glob patterns to exclude from formatting
-    #[serde(default)]
     pub exclude: Vec<String>,
 
-    /// Cached GlobSet for efficient matching (built lazily)
-    #[serde(skip)]
-    cached_matcher: OnceLock<GlobSet>,
+    /// Pre-built GlobSet for efficient matching
+    matcher: GlobSet,
 }
 
 impl Config {
@@ -38,24 +35,33 @@ impl Config {
         }
 
         let content = fs::read_to_string(&config_path)?;
-        toml::from_str(&content).map_err(|err| {
+
+        #[derive(Deserialize)]
+        struct ConfigFile {
+            #[serde(default)]
+            exclude: Vec<String>,
+        }
+
+        let config_file: ConfigFile = toml::from_str(&content).map_err(|err| {
             io::Error::new(
                 io::ErrorKind::InvalidData,
                 format!("failed to parse .basefmt.toml: {err}"),
             )
+        })?;
+
+        let matcher = Self::build_matcher(&config_file.exclude)?;
+
+        Ok(Config {
+            exclude: config_file.exclude,
+            matcher,
         })
     }
 
     /// Builds a GlobSet from the exclude patterns for efficient matching.
-    ///
-    /// # Returns
-    ///
-    /// Returns `Ok(GlobSet)` containing all exclude patterns, or an error
-    /// if any pattern is invalid.
-    pub fn build_exclude_matcher(&self) -> io::Result<GlobSet> {
+    fn build_matcher(patterns: &[String]) -> io::Result<GlobSet> {
         let mut builder = GlobSetBuilder::new();
 
-        for pattern in &self.exclude {
+        for pattern in patterns {
             let glob = Glob::new(pattern).map_err(|err| {
                 io::Error::new(
                     io::ErrorKind::InvalidInput,
@@ -75,7 +81,7 @@ impl Config {
 
     /// Checks if a file should be excluded based on the exclude patterns.
     ///
-    /// Uses a cached GlobSet for efficient matching across multiple calls.
+    /// Uses the pre-built GlobSet for efficient matching across multiple calls.
     ///
     /// # Arguments
     ///
@@ -83,21 +89,9 @@ impl Config {
     ///
     /// # Returns
     ///
-    /// Returns `Ok(true)` if the file should be excluded, `Ok(false)` if it should
-    /// be processed, or an error if the patterns are invalid.
-    pub fn is_excluded(&self, path: &Path) -> io::Result<bool> {
-        // Try to get cached matcher, or build it if not yet initialized
-        let matcher = match self.cached_matcher.get() {
-            Some(m) => m,
-            None => {
-                let m = self.build_exclude_matcher()?;
-                // Ignore error if another thread initialized it first
-                let _ = self.cached_matcher.set(m);
-                // Get the value (either ours or from another thread)
-                self.cached_matcher.get().expect("just initialized")
-            }
-        };
-        Ok(matcher.is_match(path))
+    /// Returns `true` if the file should be excluded and `false` otherwise.
+    pub fn is_excluded(&self, path: &Path) -> bool {
+        self.matcher.is_match(path)
     }
 }
 
@@ -105,8 +99,19 @@ impl Default for Config {
     fn default() -> Self {
         Config {
             exclude: Vec::new(),
-            cached_matcher: OnceLock::new(),
+            matcher: GlobSet::empty(),
         }
+    }
+}
+
+#[cfg(test)]
+impl Config {
+    fn with_exclude(patterns: Vec<String>) -> io::Result<Self> {
+        let matcher = Self::build_matcher(&patterns)?;
+        Ok(Config {
+            exclude: patterns,
+            matcher,
+        })
     }
 }
 
@@ -185,117 +190,84 @@ mod tests {
 
     #[test]
     fn test_is_excluded_simple_pattern() {
-        let config = Config {
-            exclude: vec!["*.min.js".to_string()],
-            cached_matcher: OnceLock::new(),
-        };
+        let config = Config::with_exclude(vec!["*.min.js".to_string()]).unwrap();
 
-        assert!(config.is_excluded(Path::new("app.min.js")).unwrap());
-        assert!(!config.is_excluded(Path::new("app.js")).unwrap());
+        assert!(config.is_excluded(Path::new("app.min.js")));
+        assert!(!config.is_excluded(Path::new("app.js")));
     }
 
     #[test]
     fn test_is_excluded_wildcard_pattern() {
-        let config = Config {
-            exclude: vec!["*.min.*".to_string()],
-            cached_matcher: OnceLock::new(),
-        };
+        let config = Config::with_exclude(vec!["*.min.*".to_string()]).unwrap();
 
-        assert!(config.is_excluded(Path::new("app.min.js")).unwrap());
-        assert!(config.is_excluded(Path::new("style.min.css")).unwrap());
-        assert!(!config.is_excluded(Path::new("app.js")).unwrap());
+        assert!(config.is_excluded(Path::new("app.min.js")));
+        assert!(config.is_excluded(Path::new("style.min.css")));
+        assert!(!config.is_excluded(Path::new("app.js")));
     }
 
     #[test]
     fn test_is_excluded_directory_pattern() {
-        let config = Config {
-            exclude: vec!["test/**".to_string()],
-            cached_matcher: OnceLock::new(),
-        };
+        let config = Config::with_exclude(vec!["test/**".to_string()]).unwrap();
 
-        assert!(config.is_excluded(Path::new("test/foo.txt")).unwrap());
-        assert!(config.is_excluded(Path::new("test/sub/bar.txt")).unwrap());
-        assert!(!config.is_excluded(Path::new("src/test.txt")).unwrap());
+        assert!(config.is_excluded(Path::new("test/foo.txt")));
+        assert!(config.is_excluded(Path::new("test/sub/bar.txt")));
+        assert!(!config.is_excluded(Path::new("src/test.txt")));
     }
 
     #[test]
     fn test_is_excluded_multiple_patterns() {
-        let config = Config {
-            exclude: vec![
-                "*.min.*".to_string(),
-                "test/**".to_string(),
-                "vendor/**".to_string(),
-            ],
-            cached_matcher: OnceLock::new(),
-        };
+        let config = Config::with_exclude(vec![
+            "*.min.*".to_string(),
+            "test/**".to_string(),
+            "vendor/**".to_string(),
+        ])
+        .unwrap();
 
         // Should match first pattern
-        assert!(config.is_excluded(Path::new("app.min.js")).unwrap());
+        assert!(config.is_excluded(Path::new("app.min.js")));
 
         // Should match second pattern
-        assert!(config.is_excluded(Path::new("test/foo.txt")).unwrap());
+        assert!(config.is_excluded(Path::new("test/foo.txt")));
 
         // Should match third pattern
-        assert!(config.is_excluded(Path::new("vendor/lib.js")).unwrap());
+        assert!(config.is_excluded(Path::new("vendor/lib.js")));
 
         // Should not match any pattern
-        assert!(!config.is_excluded(Path::new("src/main.js")).unwrap());
+        assert!(!config.is_excluded(Path::new("src/main.js")));
     }
 
     #[test]
     fn test_is_excluded_no_patterns() {
-        let config = Config {
-            exclude: Vec::new(),
-            cached_matcher: OnceLock::new(),
-        };
+        let config = Config::with_exclude(Vec::new()).unwrap();
 
         // Nothing should be excluded when there are no patterns
-        assert!(!config.is_excluded(Path::new("anything.txt")).unwrap());
-        assert!(!config.is_excluded(Path::new("test/foo.txt")).unwrap());
+        assert!(!config.is_excluded(Path::new("anything.txt")));
+        assert!(!config.is_excluded(Path::new("test/foo.txt")));
     }
 
     #[test]
     fn test_is_excluded_relative_path() {
-        let config = Config {
-            exclude: vec!["./test/**".to_string()],
-            cached_matcher: OnceLock::new(),
-        };
+        let config = Config::with_exclude(vec!["./test/**".to_string()]).unwrap();
 
         // Glob patterns with ./ prefix require exact match
-        assert!(config.is_excluded(Path::new("./test/foo.txt")).unwrap());
+        assert!(config.is_excluded(Path::new("./test/foo.txt")));
 
         // Without ./ prefix, it won't match the ./test/** pattern
-        assert!(!config.is_excluded(Path::new("test/foo.txt")).unwrap());
+        assert!(!config.is_excluded(Path::new("test/foo.txt")));
     }
 
     #[test]
     fn test_is_excluded_nested_wildcards() {
-        let config = Config {
-            exclude: vec!["**/node_modules/**".to_string()],
-            cached_matcher: OnceLock::new(),
-        };
+        let config = Config::with_exclude(vec!["**/node_modules/**".to_string()]).unwrap();
 
-        assert!(
-            config
-                .is_excluded(Path::new("node_modules/pkg/file.js"))
-                .unwrap()
-        );
-        assert!(
-            config
-                .is_excluded(Path::new("src/node_modules/pkg/file.js"))
-                .unwrap()
-        );
-        assert!(!config.is_excluded(Path::new("src/file.js")).unwrap());
+        assert!(config.is_excluded(Path::new("node_modules/pkg/file.js")));
+        assert!(config.is_excluded(Path::new("src/node_modules/pkg/file.js")));
+        assert!(!config.is_excluded(Path::new("src/file.js")));
     }
 
     #[test]
-    fn test_build_exclude_matcher_invalid_pattern() {
-        let config = Config {
-            exclude: vec!["[invalid".to_string()],
-            cached_matcher: OnceLock::new(),
-        };
-
-        let result = config.build_exclude_matcher();
+    fn test_with_exclude_invalid_pattern() {
+        let result = Config::with_exclude(vec!["[invalid".to_string()]);
 
         assert!(result.is_err());
         let err = result.unwrap_err();
@@ -305,25 +277,19 @@ mod tests {
 
     #[test]
     fn test_is_excluded_specific_file() {
-        let config = Config {
-            exclude: vec!["specific/file.txt".to_string()],
-            cached_matcher: OnceLock::new(),
-        };
+        let config = Config::with_exclude(vec!["specific/file.txt".to_string()]).unwrap();
 
-        assert!(config.is_excluded(Path::new("specific/file.txt")).unwrap());
-        assert!(!config.is_excluded(Path::new("specific/other.txt")).unwrap());
-        assert!(!config.is_excluded(Path::new("other/file.txt")).unwrap());
+        assert!(config.is_excluded(Path::new("specific/file.txt")));
+        assert!(!config.is_excluded(Path::new("specific/other.txt")));
+        assert!(!config.is_excluded(Path::new("other/file.txt")));
     }
 
     #[test]
     fn test_is_excluded_case_sensitive() {
-        let config = Config {
-            exclude: vec!["*.TXT".to_string()],
-            cached_matcher: OnceLock::new(),
-        };
+        let config = Config::with_exclude(vec!["*.TXT".to_string()]).unwrap();
 
         // Glob patterns are case-sensitive by default
-        assert!(config.is_excluded(Path::new("file.TXT")).unwrap());
-        assert!(!config.is_excluded(Path::new("file.txt")).unwrap());
+        assert!(config.is_excluded(Path::new("file.TXT")));
+        assert!(!config.is_excluded(Path::new("file.txt")));
     }
 }

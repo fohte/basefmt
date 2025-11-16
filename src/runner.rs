@@ -232,15 +232,7 @@ fn collect_tasks(
             .strip_prefix(config_dir_abs)
             .unwrap_or(canonical.as_path());
 
-        let is_excluded = match config.is_excluded(rel_path) {
-            Ok(result) => result,
-            Err(err) => {
-                eprintln!("{}: failed to check exclusion: {}", path.display(), err);
-                continue;
-            }
-        };
-
-        if is_excluded {
+        if config.is_excluded(rel_path) {
             continue;
         }
 
