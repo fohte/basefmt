@@ -22,7 +22,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup mise
-        uses: jdx/mise-action@v2
+        uses: jdx/mise-action@v3
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
