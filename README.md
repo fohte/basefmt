@@ -7,7 +7,7 @@ Missing final newlines and trailing spaces are common formatting issues that occ
 ## Installation
 
 ```bash
-cargo install --path .
+cargo install basefmt
 ```
 
 ## Usage
