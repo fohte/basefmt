@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 /// Configuration rules for formatting a file
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FormatRules {
     /// Whether to ensure the file ends with a newline
     pub ensure_final_newline: bool,
@@ -18,6 +18,16 @@ pub struct FormatRules {
     pub remove_trailing_spaces: bool,
     /// Whether to remove leading newlines from the file
     pub remove_leading_newlines: bool,
+}
+
+impl Default for FormatRules {
+    fn default() -> Self {
+        Self {
+            ensure_final_newline: true,
+            remove_trailing_spaces: true,
+            remove_leading_newlines: true,
+        }
+    }
 }
 
 /// Get formatting rules for a file from EditorConfig
@@ -36,7 +46,7 @@ pub struct FormatRules {
 /// - `true` → rule enabled
 /// - `false` → rule disabled
 /// - `unset` → rule disabled
-/// - unset → rule disabled (default)
+/// - not specified → rule enabled (default)
 pub fn get_format_rules(path: &Path) -> FormatRules {
     match path.canonicalize() {
         Ok(resolved) => {
@@ -182,23 +192,21 @@ fn rules_from_properties(properties: &Properties) -> FormatRules {
         }
     };
 
-    let ensure_final_newline = properties
-        .get::<FinalNewline>()
-        .ok()
-        .map(|prop| matches!(prop, FinalNewline::Value(true)))
-        .unwrap_or(false);
+    let ensure_final_newline = match properties.get::<FinalNewline>() {
+        Ok(prop) => matches!(prop, FinalNewline::Value(true)),
+        Err(raw) => raw.into_option().is_none(),
+    };
 
-    let remove_trailing_spaces = properties
-        .get::<TrimTrailingWs>()
-        .ok()
-        .map(|prop| matches!(prop, TrimTrailingWs::Value(true)))
-        .unwrap_or(false);
+    let remove_trailing_spaces = match properties.get::<TrimTrailingWs>() {
+        Ok(prop) => matches!(prop, TrimTrailingWs::Value(true)),
+        Err(raw) => raw.into_option().is_none(),
+    };
 
     let remove_leading_newlines = properties
         .get_raw_for_key("trim_leading_newlines")
         .into_option()
         .map(parse_bool_value)
-        .unwrap_or(false);
+        .unwrap_or(true);
 
     FormatRules {
         ensure_final_newline,
@@ -307,9 +315,9 @@ mod tests {
             indent_style = space
         "},
         FormatRules {
-            ensure_final_newline: false,
-            remove_trailing_spaces: false,
-            remove_leading_newlines: false,
+            ensure_final_newline: true,
+            remove_trailing_spaces: true,
+            remove_leading_newlines: true,
         }
     )]
     #[case::mixed(
@@ -390,7 +398,7 @@ mod tests {
         FormatRules {
             ensure_final_newline: true,
             remove_trailing_spaces: false,
-            ..FormatRules::default()
+            remove_leading_newlines: true,
         }
     )]
     #[case::dir_outside(
@@ -408,7 +416,7 @@ mod tests {
         FormatRules {
             ensure_final_newline: true,
             remove_trailing_spaces: true,
-            ..FormatRules::default()
+            remove_leading_newlines: true,
         }
     )]
     #[case::extension_md(
@@ -429,7 +437,7 @@ mod tests {
         FormatRules {
             ensure_final_newline: false,
             remove_trailing_spaces: false,
-            ..FormatRules::default()
+            remove_leading_newlines: true,
         }
     )]
     #[case::extension_txt(
@@ -450,7 +458,7 @@ mod tests {
         FormatRules {
             ensure_final_newline: true,
             remove_trailing_spaces: true,
-            ..FormatRules::default()
+            remove_leading_newlines: true,
         }
     )]
     fn test_pattern_matching(
@@ -474,9 +482,9 @@ mod tests {
         assert_eq!(
             rules,
             FormatRules {
-                ensure_final_newline: false,
-                remove_trailing_spaces: false,
-                remove_leading_newlines: false,
+                ensure_final_newline: true,
+                remove_trailing_spaces: true,
+                remove_leading_newlines: true,
             }
         );
     }
@@ -499,7 +507,7 @@ mod tests {
         FormatRules {
             ensure_final_newline: true,
             remove_trailing_spaces: true,
-            ..FormatRules::default()
+            remove_leading_newlines: true,
         }
     )]
     #[case::child_overrides(
@@ -554,9 +562,9 @@ mod tests {
         ],
         "subdir/test.txt",
         FormatRules {
-            ensure_final_newline: false,
+            ensure_final_newline: true,
             remove_trailing_spaces: false,
-            ..FormatRules::default()
+            remove_leading_newlines: true,
         }
     )]
     #[case::root_false_propagates(
@@ -583,7 +591,7 @@ mod tests {
         FormatRules {
             ensure_final_newline: true,
             remove_trailing_spaces: true,
-            ..FormatRules::default()
+            remove_leading_newlines: true,
         }
     )]
     #[case::missing_root_merges(
@@ -609,7 +617,7 @@ mod tests {
         FormatRules {
             ensure_final_newline: true,
             remove_trailing_spaces: true,
-            ..FormatRules::default()
+            remove_leading_newlines: true,
         }
     )]
     fn test_hierarchy(
@@ -641,14 +649,14 @@ mod tests {
     ) {
         let workspace = TestWorkspace::new();
         let config = format!(
-            "root = true\n\n[{}]\ninsert_final_newline = true\n",
+            "root = true\n\n[{}]\ninsert_final_newline = false\n",
             pattern
         );
         workspace.write_editorconfig(".", &config);
         workspace.write_file(file_path, "test");
 
         let rules = workspace.rules(file_path);
-        assert_eq!(rules.ensure_final_newline, should_match);
+        assert_eq!(rules.ensure_final_newline, !should_match);
     }
 
     #[test]
@@ -668,7 +676,11 @@ mod tests {
         let rules = workspace.rules("test.txt");
         assert_eq!(
             rules,
-            FormatRules::default(),
+            FormatRules {
+                ensure_final_newline: false,
+                remove_trailing_spaces: true,
+                remove_leading_newlines: true,
+            },
             "Invalid boolean values should be treated as false/disabled"
         );
     }
@@ -683,7 +695,11 @@ mod tests {
         let rules = workspace.rules("test.txt");
         assert_eq!(
             rules,
-            FormatRules::default(),
+            FormatRules {
+                ensure_final_newline: true,
+                remove_trailing_spaces: true,
+                remove_leading_newlines: true,
+            },
             "Malformed .editorconfig should be handled gracefully"
         );
     }
