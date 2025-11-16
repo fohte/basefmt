@@ -90,7 +90,9 @@ You can configure basefmt using a `.basefmt.toml` file in your project root.
 
 ### Excluding Files
 
-Use the `exclude` option to specify glob patterns for files that should be excluded from formatting:
+basefmt automatically respects `.gitignore` files. Files ignored by git will not be formatted.
+
+Additionally, you can use the `exclude` option in `.basefmt.toml` to specify glob patterns for files that should be excluded from formatting:
 
 ```toml
 exclude = ["*.min.*", "test/**", "vendor/**"]
@@ -102,4 +104,4 @@ Common patterns:
 - `vendor/**`: Exclude vendor directories
 - `*.generated.*`: Exclude generated files
 
-If `.basefmt.toml` doesn't exist, basefmt will format all files without exclusions.
+If `.basefmt.toml` doesn't exist, basefmt will format all files except those in `.gitignore`.
