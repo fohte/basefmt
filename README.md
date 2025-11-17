@@ -147,7 +147,7 @@ feat!: change default behavior for trailing newlines
 
 #### How Releases Work
 
-1. **Merge PRs**: When PRs with conventional commit messages are merged to `master`, release-please tracks them
+1. **Merge PRs**: When PRs with conventional commit messages are merged to the default branch (`master`), release-please tracks them
 2. **Release PR Creation**: release-please automatically creates/updates a Release PR that:
     - Bumps version in `Cargo.toml` based on commit types
     - Generates/updates `CHANGELOG.md`
@@ -157,9 +157,15 @@ feat!: change default behavior for trailing newlines
     - The package is automatically published to crates.io
 
 **Version Bumping Rules:**
-- `feat:` commits → minor version bump (0.1.0 → 0.2.0)
+
+After 1.0.0:
+- `feat:` commits → minor version bump (1.0.0 → 1.1.0)
+- `fix:` commits → patch version bump (1.0.0 → 1.0.1)
+- Breaking changes (`!`) → major version bump (1.0.0 → 2.0.0)
+
+Before 1.0.0 (with `bump-minor-pre-major` and `bump-patch-for-minor-pre-major`):
+- `feat:` commits → patch version bump (0.1.0 → 0.1.1)
 - `fix:` commits → patch version bump (0.1.0 → 0.1.1)
-- Breaking changes (`!`) → major version bump (0.1.0 → 1.0.0)
-- Before 1.0.0: `bump-minor-pre-major` and `bump-patch-for-minor-pre-major` are enabled
+- Breaking changes (`!`) → minor version bump (0.1.0 → 0.2.0)
 
 **Note:** This repository uses squash merge strategy, so the PR title becomes the commit message. Always ensure your PR title follows the Conventional Commits format.
