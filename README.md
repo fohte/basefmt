@@ -105,3 +105,67 @@ Common patterns:
 - `*.generated.*`: Exclude generated files
 
 If `.basefmt.toml` doesn't exist, basefmt will format all files except those in `.gitignore`.
+
+## Contributing
+
+### Release Process
+
+This project uses [release-please](https://github.com/googleapis/release-please) for automated releases based on [Conventional Commits](https://www.conventionalcommits.org/).
+
+#### Conventional Commit Format
+
+All PR titles must follow the Conventional Commits format (enforced by CI):
+
+```
+<type>[optional scope]: <description>
+
+[optional body]
+
+[optional footer(s)]
+```
+
+**Common types:**
+- `feat:` - New feature (triggers minor version bump)
+- `fix:` - Bug fix (triggers patch version bump)
+- `docs:` - Documentation changes
+- `chore:` - Maintenance tasks
+- `ci:` - CI/CD changes
+- `refactor:` - Code refactoring
+- `test:` - Test additions or changes
+
+**Breaking changes:**
+- Add `!` after the type to indicate breaking changes: `feat!:` or `fix!:`
+- Breaking changes trigger a major version bump
+
+**Examples:**
+```
+feat: add support for custom formatting rules
+fix: handle empty files correctly
+docs: update installation instructions
+feat!: change default behavior for trailing newlines
+```
+
+#### How Releases Work
+
+1. **Merge PRs**: When PRs with conventional commit messages are merged to the default branch (`master`), release-please tracks them
+2. **Release PR Creation**: release-please automatically creates/updates a Release PR that:
+    - Bumps version in `Cargo.toml` based on commit types
+    - Generates/updates `CHANGELOG.md`
+    - Creates a GitHub release draft
+3. **Publish**: When the Release PR is merged:
+    - A new GitHub release and git tag are created
+    - The package is automatically published to crates.io
+
+**Version Bumping Rules:**
+
+After 1.0.0:
+- `feat:` commits → minor version bump (1.0.0 → 1.1.0)
+- `fix:` commits → patch version bump (1.0.0 → 1.0.1)
+- Breaking changes (`!`) → major version bump (1.0.0 → 2.0.0)
+
+Before 1.0.0 (with `bump-minor-pre-major` and `bump-patch-for-minor-pre-major`):
+- `feat:` commits → patch version bump (0.1.0 → 0.1.1)
+- `fix:` commits → patch version bump (0.1.0 → 0.1.1)
+- Breaking changes (`!`) → minor version bump (0.1.0 → 0.2.0)
+
+**Note:** This repository uses squash merge strategy, so the PR title becomes the commit message. Always ensure your PR title follows the Conventional Commits format.
