@@ -149,12 +149,12 @@ feat!: change default behavior for trailing newlines
 
 1. **Merge PRs**: When PRs with conventional commit messages are merged to `master`, release-please tracks them
 2. **Release PR Creation**: release-please automatically creates/updates a Release PR that:
-   - Bumps version in `Cargo.toml` based on commit types
-   - Generates/updates `CHANGELOG.md`
-   - Creates a GitHub release draft
+    - Bumps version in `Cargo.toml` based on commit types
+    - Generates/updates `CHANGELOG.md`
+    - Creates a GitHub release draft
 3. **Publish**: When the Release PR is merged:
-   - A new GitHub release and git tag are created
-   - The package is automatically published to crates.io
+    - A new GitHub release and git tag are created
+    - The package is automatically published to crates.io
 
 **Version Bumping Rules:**
 - `feat:` commits → minor version bump (0.1.0 → 0.2.0)
