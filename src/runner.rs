@@ -1,7 +1,7 @@
 use crate::config::Config;
 use crate::editorconfig::{EditorConfigCache, FormatRules};
 use crate::find::find_files;
-use crate::format::{check_file_with_rules, format_file_with_rules, CheckResult};
+use crate::format::{CheckResult, check_file_with_rules, format_file_with_rules};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use std::io;
 use std::path::{Path, PathBuf};
