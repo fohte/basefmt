@@ -31,6 +31,7 @@ basefmt --check .
 ```
 
 Exit codes:
+
 - `0`: All files are properly formatted (or successfully formatted in non-check mode)
 - `1`: Some files need formatting (check mode only)
 - `2`: Error occurred during execution
@@ -39,11 +40,11 @@ Exit codes:
 
 basefmt applies the following universal formatting rules:
 
-| Rule | Description |
-|------|-------------|
+| Rule                    | Description                                       |
+| ----------------------- | ------------------------------------------------- |
 | Remove leading newlines | Empty lines at the beginning of files are removed |
-| Remove trailing spaces | Whitespace at the end of each line is removed |
-| Ensure final newline | Files must end with exactly one newline character |
+| Remove trailing spaces  | Whitespace at the end of each line is removed     |
+| Ensure final newline    | Files must end with exactly one newline character |
 
 ## EditorConfig Support
 
@@ -53,10 +54,10 @@ basefmt integrates with [EditorConfig](https://editorconfig.org/) to respect pro
 
 The following EditorConfig properties are mapped to basefmt's formatting rules:
 
-| EditorConfig Property | basefmt Rule | Description |
-|----------------------|--------------|-------------|
-| `insert_final_newline` | Ensure final newline | Controls whether files should end with a newline |
-| `trim_trailing_whitespace` | Remove trailing spaces | Controls whether trailing whitespace should be removed |
+| EditorConfig Property                | basefmt Rule            | Description                                             |
+| ------------------------------------ | ----------------------- | ------------------------------------------------------- |
+| `insert_final_newline`               | Ensure final newline    | Controls whether files should end with a newline        |
+| `trim_trailing_whitespace`           | Remove trailing spaces  | Controls whether trailing whitespace should be removed  |
 | `trim_leading_newlines` **(custom)** | Remove leading newlines | **basefmt extension:** Controls leading newline removal |
 
 **Note**: `trim_leading_newlines` is a custom property specific to basefmt and not part of the EditorConfig specification.
@@ -99,6 +100,7 @@ exclude = ["*.min.*", "test/**", "vendor/**"]
 ```
 
 Common patterns:
+
 - `*.min.*`: Exclude minified files
 - `**/node_modules/**`: Exclude dependency directories
 - `vendor/**`: Exclude vendor directories
@@ -125,6 +127,7 @@ All PR titles must follow the Conventional Commits format (enforced by CI):
 ```
 
 **Common types:**
+
 - `feat:` - New feature (triggers minor version bump)
 - `fix:` - Bug fix (triggers patch version bump)
 - `docs:` - Documentation changes
@@ -134,10 +137,12 @@ All PR titles must follow the Conventional Commits format (enforced by CI):
 - `test:` - Test additions or changes
 
 **Breaking changes:**
+
 - Add `!` after the type to indicate breaking changes: `feat!:` or `fix!:`
 - Breaking changes trigger a major version bump
 
 **Examples:**
+
 ```
 feat: add support for custom formatting rules
 fix: handle empty files correctly
@@ -149,21 +154,23 @@ feat!: change default behavior for trailing newlines
 
 1. **Merge PRs**: When PRs with conventional commit messages are merged to the default branch (`master`), release-please tracks them
 2. **Release PR Creation**: release-please automatically creates/updates a Release PR that:
-    - Bumps version in `Cargo.toml` based on commit types
-    - Generates/updates `CHANGELOG.md`
-    - Creates a GitHub release draft
+   - Bumps version in `Cargo.toml` based on commit types
+   - Generates/updates `CHANGELOG.md`
+   - Creates a GitHub release draft
 3. **Publish**: When the Release PR is merged:
-    - A new GitHub release and git tag are created
-    - The package is automatically published to crates.io
+   - A new GitHub release and git tag are created
+   - The package is automatically published to crates.io
 
 **Version Bumping Rules:**
 
 After 1.0.0:
+
 - `feat:` commits → minor version bump (1.0.0 → 1.1.0)
 - `fix:` commits → patch version bump (1.0.0 → 1.0.1)
 - Breaking changes (`!`) → major version bump (1.0.0 → 2.0.0)
 
 Before 1.0.0 (with `bump-minor-pre-major` and `bump-patch-for-minor-pre-major`):
+
 - `feat:` commits → patch version bump (0.1.0 → 0.1.1)
 - `fix:` commits → patch version bump (0.1.0 → 0.1.1)
 - Breaking changes (`!`) → minor version bump (0.1.0 → 0.2.0)
