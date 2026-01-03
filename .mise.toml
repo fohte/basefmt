@@ -1,5 +1,5 @@
 [tools]
-rust = { version = "1.91.1", profile = "default" }
+rust = { version = "1.92.0", profile = "default", components = "clippy,rustfmt" }
 lefthook = "2.0.12"
 
 # lefthook hooks
