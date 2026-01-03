@@ -1,0 +1,9 @@
+# Changes here will be overwritten by Copier
+_commit: v0.1.22
+_src_path: https://github.com/fohte/generic-boilerplate
+description: Generic formatter for any text file - ensures consistent EOF newlines,
+    removes trailing spaces, and more
+is_public: true
+release_type: rust
+type: base
+use_release_please: true
