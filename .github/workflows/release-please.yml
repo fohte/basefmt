@@ -80,6 +80,8 @@ jobs:
       SCCACHE_LOG: 'debug'
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.tag_name || github.ref }}
 
       - run: rustup show
 
