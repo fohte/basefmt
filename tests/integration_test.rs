@@ -1,3 +1,10 @@
+#![allow(
+    clippy::unwrap_used,
+    reason = "allow-unwrap-in-tests only recognizes #[test] functions and #[cfg(test)] \
+    blocks, not the helper functions in this integration test binary"
+)]
+
+use indoc::indoc;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -37,13 +44,14 @@ fn create_default_editorconfig(dir: &TempDir) {
     let config_path = dir.path().join(".editorconfig");
     fs::write(
         config_path,
-        r#"root = true
+        indoc! {"
+            root = true
 
-[*]
-insert_final_newline = true
-trim_trailing_whitespace = true
-trim_leading_newlines = true
-"#,
+            [*]
+            insert_final_newline = true
+            trim_trailing_whitespace = true
+            trim_leading_newlines = true
+        "},
     )
     .unwrap();
 }
@@ -149,7 +157,7 @@ fn test_format_skips_binary_file() {
     let temp_dir = TempDir::new().unwrap();
     let binary_file = temp_dir.path().join("binary.bin");
     // Write invalid UTF-8 bytes
-    fs::write(&binary_file, &[0xFF, 0xFE, 0xFD]).unwrap();
+    fs::write(&binary_file, [0xFF, 0xFE, 0xFD]).unwrap();
 
     let status = basefmt()
         .arg(binary_file.to_str().unwrap())
@@ -170,11 +178,11 @@ fn test_format_directory_with_binary_file() {
 
     // Create a text file that needs formatting
     let text_file = temp_dir.path().join("text.txt");
-    fs::write(&text_file, "\n\ntest content  \n\n").unwrap();
+    fs::write(&text_file, "\n\ntest content  \n\n").unwrap(); // ast-grep-ignore: prefer-indoc
 
     // Create a binary file
     let binary_file = temp_dir.path().join("binary.bin");
-    fs::write(&binary_file, &[0xFF, 0xFE, 0xFD]).unwrap();
+    fs::write(&binary_file, [0xFF, 0xFE, 0xFD]).unwrap();
 
     let status = basefmt()
         .arg(temp_dir.path().to_str().unwrap())
@@ -198,7 +206,7 @@ fn test_check_skips_binary_file() {
     let temp_dir = TempDir::new().unwrap();
     let binary_file = temp_dir.path().join("binary.bin");
     // Write invalid UTF-8 bytes
-    fs::write(&binary_file, &[0xFF, 0xFE, 0xFD]).unwrap();
+    fs::write(&binary_file, [0xFF, 0xFE, 0xFD]).unwrap();
 
     let status = basefmt()
         .arg("--check")
@@ -244,7 +252,7 @@ fn test_editorconfig_and_exclude_integration() {
     // Generate test files with guaranteed trailing spaces
     fs::write(
         temp_dir.path().join("normal.txt"),
-        "normal file with trailing spaces  \n\n\n",
+        "normal file with trailing spaces  \n\n\n", // ast-grep-ignore: prefer-indoc
     )
     .unwrap();
     fs::write(
@@ -254,17 +262,17 @@ fn test_editorconfig_and_exclude_integration() {
     .unwrap();
     fs::write(
         temp_dir.path().join("test/fixtures/data.txt"),
-        "test data with trailing spaces  \n\n\n",
+        "test data with trailing spaces  \n\n\n", // ast-grep-ignore: prefer-indoc
     )
     .unwrap();
     fs::write(
         temp_dir.path().join("vendor/lib.js"),
-        "// vendor library with trailing spaces  \n\n\n",
+        "// vendor library with trailing spaces  \n\n\n", // ast-grep-ignore: prefer-indoc
     )
     .unwrap();
     fs::write(
         temp_dir.path().join("generated/output.rs"),
-        "// generated code with trailing spaces  \n\n\n",
+        "// generated code with trailing spaces  \n\n\n", // ast-grep-ignore: prefer-indoc
     )
     .unwrap();
 
@@ -297,14 +305,14 @@ fn test_editorconfig_and_exclude_integration() {
     let test_fixture_content =
         fs::read_to_string(temp_dir.path().join("test/fixtures/data.txt")).unwrap();
     assert!(
-        test_fixture_content.ends_with("  \n\n\n"),
+        test_fixture_content.ends_with("  \n\n\n"), // ast-grep-ignore: prefer-indoc
         "test/fixtures/data.txt should not be formatted (EditorConfig unset)"
     );
 
     // Test 4: vendor/lib.js should not be formatted (EditorConfig: unset)
     let vendor_content = fs::read_to_string(temp_dir.path().join("vendor/lib.js")).unwrap();
     assert!(
-        vendor_content.ends_with("  \n\n\n"),
+        vendor_content.ends_with("  \n\n\n"), // ast-grep-ignore: prefer-indoc
         "vendor/lib.js should not be formatted (EditorConfig unset)"
     );
 
@@ -312,7 +320,7 @@ fn test_editorconfig_and_exclude_integration() {
     let generated_content =
         fs::read_to_string(temp_dir.path().join("generated/output.rs")).unwrap();
     assert!(
-        generated_content.ends_with("  \n\n\n"),
+        generated_content.ends_with("  \n\n\n"), // ast-grep-ignore: prefer-indoc
         "generated/output.rs should not be formatted (.basefmt.toml exclude)"
     );
 }
@@ -328,7 +336,7 @@ fn test_editorconfig_disables_formatting() {
 
     // Create markdown file with trailing spaces
     let md_path = temp_dir.path().join("markdown.md");
-    fs::write(&md_path, "# Test\ntrailing spaces  \n").unwrap();
+    fs::write(&md_path, "# Test\ntrailing spaces  \n").unwrap(); // ast-grep-ignore: prefer-indoc
 
     let status = basefmt().arg(md_path.to_str().unwrap()).status().unwrap();
     assert!(status.success());
@@ -336,10 +344,7 @@ fn test_editorconfig_disables_formatting() {
     let formatted_content = fs::read_to_string(&md_path).unwrap();
 
     // Markdown should not have trailing spaces removed
-    assert!(
-        formatted_content.contains("trailing spaces  "),
-        "Markdown file should preserve trailing spaces"
-    );
+    assert_eq!(formatted_content, "# Test\ntrailing spaces  \n"); // ast-grep-ignore: prefer-indoc
 }
 
 /// Test that .basefmt.toml exclude has highest priority
@@ -354,7 +359,7 @@ fn test_basefmt_exclude_overrides_editorconfig() {
     // Create generated directory and file
     fs::create_dir_all(temp_dir.path().join("generated")).unwrap();
     let generated_path = temp_dir.path().join("generated/output.rs");
-    let original_content = "// generated code with trailing spaces  \n\n\n";
+    let original_content = "// generated code with trailing spaces  \n\n\n"; // ast-grep-ignore: prefer-indoc
     fs::write(&generated_path, original_content).unwrap();
 
     let status = basefmt()
@@ -383,7 +388,7 @@ fn test_check_mode_with_config() {
 
     // Create a file that needs formatting
     let normal_path = temp_dir.path().join("normal.txt");
-    fs::write(&normal_path, "normal file with trailing spaces  \n\n\n").unwrap();
+    fs::write(&normal_path, "normal file with trailing spaces  \n\n\n").unwrap(); // ast-grep-ignore: prefer-indoc
 
     // Check mode should report that normal.txt needs formatting
     // but should not report excluded files as needing formatting
@@ -399,7 +404,7 @@ fn test_check_mode_with_config() {
     // All files should remain unchanged
     let normal_content = fs::read_to_string(&normal_path).unwrap();
     assert!(
-        normal_content.ends_with("  \n\n\n"),
+        normal_content.ends_with("  \n\n\n"), // ast-grep-ignore: prefer-indoc
         "check mode should not modify files"
     );
 }
@@ -416,7 +421,7 @@ fn test_editorconfig_unset_disables_formatting() {
     // Create vendor directory and file
     fs::create_dir_all(temp_dir.path().join("vendor")).unwrap();
     let vendor_path = temp_dir.path().join("vendor/lib.js");
-    let original_content = "// vendor library with trailing spaces  \n\n\n";
+    let original_content = "// vendor library with trailing spaces  \n\n\n"; // ast-grep-ignore: prefer-indoc
     fs::write(&vendor_path, original_content).unwrap();
 
     let status = basefmt()
@@ -449,22 +454,22 @@ fn test_multiple_exclusion_patterns() {
 
     fs::write(
         temp_dir.path().join("test/fixtures/data.txt"),
-        "test data with trailing spaces  \n\n\n",
+        "test data with trailing spaces  \n\n\n", // ast-grep-ignore: prefer-indoc
     )
     .unwrap();
     fs::write(
         temp_dir.path().join("markdown.md"),
-        "# Markdown\ntrailing spaces  \n\n\n",
+        "# Markdown\ntrailing spaces  \n\n\n", // ast-grep-ignore: prefer-indoc
     )
     .unwrap();
     fs::write(
         temp_dir.path().join("generated/output.rs"),
-        "// generated code with trailing spaces  \n\n\n",
+        "// generated code with trailing spaces  \n\n\n", // ast-grep-ignore: prefer-indoc
     )
     .unwrap();
     fs::write(
         temp_dir.path().join("normal.txt"),
-        "normal file with trailing spaces  \n\n\n",
+        "normal file with trailing spaces  \n\n\n", // ast-grep-ignore: prefer-indoc
     )
     .unwrap();
 
@@ -478,21 +483,22 @@ fn test_multiple_exclusion_patterns() {
     // 1. EditorConfig pattern-based exclusion (test/fixtures/**)
     let test_fixture = fs::read_to_string(temp_dir.path().join("test/fixtures/data.txt")).unwrap();
     assert!(
-        test_fixture.ends_with("  \n\n\n"),
+        test_fixture.ends_with("  \n\n\n"), // ast-grep-ignore: prefer-indoc
         "test/fixtures/** excluded by EditorConfig"
     );
 
     // 2. EditorConfig file extension-based rule (*.md)
     let markdown = fs::read_to_string(temp_dir.path().join("markdown.md")).unwrap();
-    assert!(
-        markdown.contains("trailing spaces  "),
+    assert_eq!(
+        markdown,
+        "# Markdown\ntrailing spaces  \n", // ast-grep-ignore: prefer-indoc
         "*.md excluded by EditorConfig"
     );
 
     // 3. .basefmt.toml exclude pattern (generated/**)
     let generated = fs::read_to_string(temp_dir.path().join("generated/output.rs")).unwrap();
     assert!(
-        generated.ends_with("  \n\n\n"),
+        generated.ends_with("  \n\n\n"), // ast-grep-ignore: prefer-indoc
         "generated/** excluded by .basefmt.toml"
     );
 

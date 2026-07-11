@@ -118,6 +118,7 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use indoc::indoc;
     use std::fs;
     use tempfile::TempDir;
 
@@ -164,8 +165,9 @@ mod tests {
         let config_path = temp_dir.path().join(".basefmt.toml");
         fs::write(
             &config_path,
-            r#"exclude = ["*.min.*", "test/**", "vendor/**"]
-"#,
+            indoc! {r#"
+                exclude = ["*.min.*", "test/**", "vendor/**"]
+            "#},
         )
         .unwrap();
 
@@ -185,7 +187,10 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert_eq!(err.kind(), io::ErrorKind::InvalidData);
-        assert!(err.to_string().contains("failed to parse"));
+        assert!(
+            err.to_string()
+                .starts_with("failed to parse .basefmt.toml: ")
+        );
     }
 
     #[test]
@@ -272,7 +277,10 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
-        assert!(err.to_string().contains("invalid glob pattern"));
+        assert!(
+            err.to_string()
+                .starts_with("invalid glob pattern '[invalid': ")
+        );
     }
 
     #[test]

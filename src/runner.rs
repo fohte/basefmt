@@ -233,6 +233,7 @@ fn collect_tasks(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use indoc::indoc;
     use std::fs;
     use tempfile::TempDir;
 
@@ -241,14 +242,14 @@ mod tests {
         let config_path = dir.path().join(".editorconfig");
         fs::write(
             config_path,
-            r#"
-root = true
+            indoc! {"
+                root = true
 
-[*]
-insert_final_newline = true
-trim_trailing_whitespace = true
-trim_leading_newlines = true
-"#,
+                [*]
+                insert_final_newline = true
+                trim_trailing_whitespace = true
+                trim_leading_newlines = true
+            "},
         )
         .unwrap();
     }
@@ -299,7 +300,7 @@ trim_leading_newlines = true
         let temp_dir = TempDir::new().unwrap();
         create_default_editorconfig(&temp_dir);
         let file = temp_dir.path().join("test.txt");
-        fs::write(&file, "\n\ntest content  \n\n").unwrap();
+        fs::write(&file, "\n\ntest content  \n\n").unwrap(); // ast-grep-ignore: prefer-indoc
 
         let result = run_format(&[&file]).unwrap();
 
@@ -318,7 +319,7 @@ trim_leading_newlines = true
         create_default_editorconfig(&temp_dir);
         let file1 = temp_dir.path().join("file1.txt");
         let file2 = temp_dir.path().join("file2.txt");
-        fs::write(&file1, "\n\ntest1  \n").unwrap();
+        fs::write(&file1, "\n\ntest1  \n").unwrap(); // ast-grep-ignore: prefer-indoc
         fs::write(&file2, "test2\n").unwrap();
 
         let result = run_format(&[temp_dir.path()]).unwrap();
@@ -336,7 +337,7 @@ trim_leading_newlines = true
         let temp_dir = TempDir::new().unwrap();
         let file1 = temp_dir.path().join("file1.txt");
         let file2 = temp_dir.path().join("file2.txt");
-        fs::write(&file1, "\n\ntest1\n").unwrap();
+        fs::write(&file1, "\n\ntest1\n").unwrap(); // ast-grep-ignore: prefer-indoc
         fs::write(&file2, "test2  \n").unwrap();
 
         let result = run_format(&[temp_dir.path()]).unwrap();
@@ -375,7 +376,7 @@ trim_leading_newlines = true
         create_default_editorconfig(&temp_dir);
         let file1 = temp_dir.path().join("file1.txt");
         let file2 = temp_dir.path().join("file2.txt");
-        fs::write(&file1, "\n\ntest1\n").unwrap();
+        fs::write(&file1, "\n\ntest1\n").unwrap(); // ast-grep-ignore: prefer-indoc
         fs::write(&file2, "test2  \n").unwrap();
 
         let result = run_check(&[temp_dir.path()]).unwrap();
@@ -393,7 +394,7 @@ trim_leading_newlines = true
         let file1 = temp_dir.path().join("file1.txt");
         let file2 = temp_dir.path().join("file2.txt");
         fs::write(&file1, "test1\n").unwrap();
-        fs::write(&file2, "\n\ntest2\n").unwrap();
+        fs::write(&file2, "\n\ntest2\n").unwrap(); // ast-grep-ignore: prefer-indoc
 
         let result = run_check(&[temp_dir.path()]).unwrap();
 
@@ -413,7 +414,7 @@ trim_leading_newlines = true
     fn test_run_check_does_not_modify_files() {
         let temp_dir = TempDir::new().unwrap();
         let file = temp_dir.path().join("test.txt");
-        let original = "\n\ntest content  \n\n";
+        let original = "\n\ntest content  \n\n"; // ast-grep-ignore: prefer-indoc
         fs::write(&file, original).unwrap();
 
         let _result = run_check(&[&file]).unwrap();

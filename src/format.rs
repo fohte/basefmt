@@ -233,6 +233,7 @@ fn format_content(content: &str, rules: &editorconfig::FormatRules) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use indoc::indoc;
     use std::fs;
     use tempfile::TempDir;
 
@@ -241,14 +242,14 @@ mod tests {
         let config_path = dir.path().join(".editorconfig");
         fs::write(
             config_path,
-            r#"
-root = true
+            indoc! {"
+                root = true
 
-[*]
-insert_final_newline = true
-trim_trailing_whitespace = true
-trim_leading_newlines = true
-"#,
+                [*]
+                insert_final_newline = true
+                trim_trailing_whitespace = true
+                trim_leading_newlines = true
+            "},
         )
         .unwrap();
     }
@@ -260,8 +261,8 @@ trim_leading_newlines = true
             remove_trailing_spaces: true,
             remove_leading_newlines: true,
         };
-        let input = "\n\nfirst line\nsecond line\n";
-        let expected = "first line\nsecond line\n";
+        let input = "\n\nfirst line\nsecond line\n"; // ast-grep-ignore: prefer-indoc
+        let expected = "first line\nsecond line\n"; // ast-grep-ignore: prefer-indoc
         assert_eq!(format_content(input, &rules), expected);
     }
 
@@ -272,8 +273,13 @@ trim_leading_newlines = true
             remove_trailing_spaces: true,
             remove_leading_newlines: true,
         };
-        let input = "line with trailing spaces   \nanother line with spaces  \n";
-        let expected = "line with trailing spaces\nanother line with spaces\n";
+        // Kept as single-line literals (not indoc!): the trailing spaces are the
+        // point of this test, and indoc! would store them as literal trailing
+        // whitespace on real source lines, which basefmt's own
+        // trim-trailing-whitespace formatting (self-applied via lefthook) would
+        // strip on the next format pass.
+        let input = "line with trailing spaces   \nanother line with spaces  \n"; // ast-grep-ignore: prefer-indoc
+        let expected = "line with trailing spaces\nanother line with spaces\n"; // ast-grep-ignore: prefer-indoc
         assert_eq!(format_content(input, &rules), expected);
     }
 
@@ -285,7 +291,7 @@ trim_leading_newlines = true
             remove_leading_newlines: true,
         };
         let input = "first line\nsecond line";
-        let expected = "first line\nsecond line\n";
+        let expected = "first line\nsecond line\n"; // ast-grep-ignore: prefer-indoc
         assert_eq!(format_content(input, &rules), expected);
     }
 
@@ -296,8 +302,8 @@ trim_leading_newlines = true
             remove_trailing_spaces: true,
             remove_leading_newlines: true,
         };
-        let input = "first line\nsecond line\n\n\n";
-        let expected = "first line\nsecond line\n";
+        let input = "first line\nsecond line\n\n\n"; // ast-grep-ignore: prefer-indoc
+        let expected = "first line\nsecond line\n"; // ast-grep-ignore: prefer-indoc
         assert_eq!(format_content(input, &rules), expected);
     }
 
@@ -320,7 +326,7 @@ trim_leading_newlines = true
             remove_trailing_spaces: true,
             remove_leading_newlines: true,
         };
-        let input = "\n\n\n";
+        let input = "\n\n\n"; // ast-grep-ignore: prefer-indoc
         let expected = "";
         assert_eq!(format_content(input, &rules), expected);
     }
@@ -330,7 +336,7 @@ trim_leading_newlines = true
         let temp_dir = TempDir::new().unwrap();
         create_default_editorconfig(&temp_dir);
         let file_path = temp_dir.path().join("test.txt");
-        fs::write(&file_path, "\n\ntest content  \n\n").unwrap();
+        fs::write(&file_path, "\n\ntest content  \n\n").unwrap(); // ast-grep-ignore: prefer-indoc
 
         let result = format_file(&file_path).unwrap();
 
@@ -370,7 +376,7 @@ trim_leading_newlines = true
         let temp_dir = TempDir::new().unwrap();
         create_default_editorconfig(&temp_dir);
         let file_path = temp_dir.path().join("test.txt");
-        fs::write(&file_path, "\n\ntest content  \n\n").unwrap();
+        fs::write(&file_path, "\n\ntest content  \n\n").unwrap(); // ast-grep-ignore: prefer-indoc
 
         let result = check_file(&file_path).unwrap();
 
@@ -385,7 +391,7 @@ trim_leading_newlines = true
         let temp_dir = TempDir::new().unwrap();
         create_default_editorconfig(&temp_dir);
         let file_path = temp_dir.path().join("test.txt");
-        fs::write(&file_path, "\n\ntest content  \n\n").unwrap();
+        fs::write(&file_path, "\n\ntest content  \n\n").unwrap(); // ast-grep-ignore: prefer-indoc
 
         // Set specific permissions (e.g., 0o644)
         let perms = fs::Permissions::from_mode(0o755);
