@@ -19,3 +19,6 @@ fi
 if command -v lefthook > /dev/null 2>&1; then
   lefthook install
 fi
+
+# Fetch Rust dependencies
+cargo fetch

@@ -1,5 +1,6 @@
 [tools]
 lefthook = "2.1.9"
+"github:ast-grep/ast-grep" = "0.44.0"
 
 # lefthook hooks
 actionlint = "1.7.12"
@@ -11,3 +12,7 @@ pinact = "4.1.0"
 "npm:prettier" = "3.9.4"
 shellcheck = "0.11.0"
 shfmt = "3.13.1"
+
+[env]
+# Share target dir across worktrees to avoid full recompilation
+CARGO_TARGET_DIR = "{{config_root}}/target"

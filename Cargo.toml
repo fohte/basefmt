@@ -23,3 +23,11 @@ toml = "0.8"
 [dev-dependencies]
 indoc = "2.0.7"
 rstest = "0.26.1"
+
+[lints.clippy]
+allow_attributes = "warn"
+allow_attributes_without_reason = "warn"
+disallowed_macros = "deny"
+expect_used = "deny"
+panic = "deny"
+unwrap_used = "deny"

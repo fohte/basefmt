@@ -218,7 +218,7 @@ fn rules_from_properties(properties: &Properties) -> FormatRules {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use indoc::indoc;
+    use indoc::{formatdoc, indoc};
     use rstest::rstest;
     use std::fs;
     use std::path::{Path, PathBuf};
@@ -648,10 +648,12 @@ mod tests {
         #[case] should_match: bool,
     ) {
         let workspace = TestWorkspace::new();
-        let config = format!(
-            "root = true\n\n[{}]\ninsert_final_newline = false\n",
-            pattern
-        );
+        let config = formatdoc! {"
+            root = true
+
+            [{pattern}]
+            insert_final_newline = false
+        "};
         workspace.write_editorconfig(".", &config);
         workspace.write_file(file_path, "test");
 
