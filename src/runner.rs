@@ -300,6 +300,11 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         create_default_editorconfig(&temp_dir);
         let file = temp_dir.path().join("test.txt");
+        // Trailing spaces are the point of this fixture; kept as a single-line
+        // literal (not indoc!) because indoc! would store them as literal
+        // trailing whitespace on real source lines, which basefmt's own
+        // trim-trailing-whitespace formatting (self-applied via lefthook)
+        // would strip on the next format pass.
         fs::write(&file, "\n\ntest content  \n\n").unwrap(); // ast-grep-ignore: prefer-indoc
 
         let result = run_format(&[&file]).unwrap();
@@ -319,6 +324,8 @@ mod tests {
         create_default_editorconfig(&temp_dir);
         let file1 = temp_dir.path().join("file1.txt");
         let file2 = temp_dir.path().join("file2.txt");
+        // Trailing spaces are the point of this fixture; see the comment on
+        // test_run_format_single_file for why it isn't converted to indoc!.
         fs::write(&file1, "\n\ntest1  \n").unwrap(); // ast-grep-ignore: prefer-indoc
         fs::write(&file2, "test2\n").unwrap();
 
@@ -337,7 +344,15 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let file1 = temp_dir.path().join("file1.txt");
         let file2 = temp_dir.path().join("file2.txt");
-        fs::write(&file1, "\n\ntest1\n").unwrap(); // ast-grep-ignore: prefer-indoc
+        fs::write(
+            &file1,
+            indoc! {"
+
+
+                test1
+            "},
+        )
+        .unwrap();
         fs::write(&file2, "test2  \n").unwrap();
 
         let result = run_format(&[temp_dir.path()]).unwrap();
@@ -376,7 +391,15 @@ mod tests {
         create_default_editorconfig(&temp_dir);
         let file1 = temp_dir.path().join("file1.txt");
         let file2 = temp_dir.path().join("file2.txt");
-        fs::write(&file1, "\n\ntest1\n").unwrap(); // ast-grep-ignore: prefer-indoc
+        fs::write(
+            &file1,
+            indoc! {"
+
+
+                test1
+            "},
+        )
+        .unwrap();
         fs::write(&file2, "test2  \n").unwrap();
 
         let result = run_check(&[temp_dir.path()]).unwrap();
@@ -394,7 +417,15 @@ mod tests {
         let file1 = temp_dir.path().join("file1.txt");
         let file2 = temp_dir.path().join("file2.txt");
         fs::write(&file1, "test1\n").unwrap();
-        fs::write(&file2, "\n\ntest2\n").unwrap(); // ast-grep-ignore: prefer-indoc
+        fs::write(
+            &file2,
+            indoc! {"
+
+
+                test2
+            "},
+        )
+        .unwrap();
 
         let result = run_check(&[temp_dir.path()]).unwrap();
 
@@ -414,6 +445,8 @@ mod tests {
     fn test_run_check_does_not_modify_files() {
         let temp_dir = TempDir::new().unwrap();
         let file = temp_dir.path().join("test.txt");
+        // Trailing spaces are the point of this fixture; see the comment on
+        // test_run_format_single_file for why it isn't converted to indoc!.
         let original = "\n\ntest content  \n\n"; // ast-grep-ignore: prefer-indoc
         fs::write(&file, original).unwrap();
 

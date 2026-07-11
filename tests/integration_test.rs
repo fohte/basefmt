@@ -176,7 +176,12 @@ fn test_format_skips_binary_file() {
 fn test_format_directory_with_binary_file() {
     let temp_dir = TempDir::new().unwrap();
 
-    // Create a text file that needs formatting
+    // Create a text file that needs formatting. Trailing spaces are the point
+    // of these fixtures throughout this file; they're kept as single-line
+    // literals (not indoc!) because indoc! would store them as literal
+    // trailing whitespace on real source lines, which basefmt's own
+    // trim-trailing-whitespace formatting (self-applied via lefthook) would
+    // strip on the next format pass.
     let text_file = temp_dir.path().join("text.txt");
     fs::write(&text_file, "\n\ntest content  \n\n").unwrap(); // ast-grep-ignore: prefer-indoc
 
