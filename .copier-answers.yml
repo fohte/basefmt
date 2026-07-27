@@ -1,11 +1,10 @@
 # Changes here will be overwritten by Copier
-_commit: v0.8.14
+_commit: v0.9.0
 _src_path: https://github.com/fohte/generic-boilerplate
 auto_merge_release_pr: true
 binary_name: basefmt
-description:
-  Generic formatter for any text file - ensures consistent EOF newlines,
-  removes trailing spaces, and more
+description: Generic formatter for any text file - ensures consistent EOF newlines,
+    removes trailing spaces, and more
 is_public: true
 project_name: basefmt
 release_binary: true
