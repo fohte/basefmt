@@ -36,30 +36,6 @@ jobs:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
-      # Auto-merge release PR to enable automatic releases on every merge to master
-      - name: Auto-merge release PR
-        if: steps.release.outputs.prs_created == 'true'
-        env:
-          GH_TOKEN: ${{ steps.octo-sts.outputs.token }}
-          PR_JSON: ${{ steps.release.outputs.pr }}
-        run: |
-          PR_NUMBER=$(echo "$PR_JSON" | jq -r '.number')
-          # Try --auto first (enables auto-merge when CI is pending/required)
-          # If PR is already in clean status, --auto fails with 'Pull request is in clean status'
-          # In that case, fall back to direct merge
-          if OUTPUT=$(gh pr merge "$PR_NUMBER" --squash --auto -R "${{ github.repository }}" 2>&1); then
-            echo "$OUTPUT"
-            echo "Auto-merge enabled successfully"
-          elif echo "$OUTPUT" | grep -q "clean status"; then
-            echo "$OUTPUT"
-            echo "PR is in clean status, merging directly"
-            gh pr merge "$PR_NUMBER" --squash -R "${{ github.repository }}"
-          else
-            echo "$OUTPUT"
-            echo "Auto-merge failed with unexpected error"
-            exit 1
-          fi
-
   build-release:
     needs: release-please
     # always() is required because release-please job is skipped on workflow_dispatch,
