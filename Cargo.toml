@@ -1,6 +1,6 @@
 [package]
 name = "basefmt"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 license = "MIT"
 description = "A formatter that applies universal formatting rules to any text file"
